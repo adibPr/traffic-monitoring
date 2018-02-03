@@ -44,7 +44,7 @@ if __name__ == '__main__' :
     from iterator import FrameIterator
     from background import BackgroundModel
 
-    fi = FrameIterator ('./data/sample/session0_center.avi')
+    fi = FrameIterator ('./data/sample/session0_center/')
     bg = BackgroundModel (fi)
 
     print ("Learning")
