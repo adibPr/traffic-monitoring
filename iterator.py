@@ -2,7 +2,6 @@
 
 import cv2
 import os
-import sys
 
 class FrameIterator (object) : 
 
@@ -25,6 +24,7 @@ class FrameIterator (object) :
         else : 
             # then its a video
             self.input_video = cv2.VideoCapture (fpath)
+            self.fps = self.input_video.get (cv2.CAP_PROP_FPS)
 
             def get_next () : 
                 if self.input_video.isOpened () : 
