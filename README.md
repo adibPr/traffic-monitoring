@@ -27,7 +27,7 @@ I use sample of [BrnoCompSpeed](https://medusa.fit.vutbr.cz/traffic/research-top
 - [x] download data
 - [x] resampling so each view start at same time (using frame ID)
 - [x] background subtraction
-- [ ] load VP
+- [x] load VP
 - [ ] automatically find common plane
 - [ ] perspective inverse mapping
 - [ ] combine multicamera

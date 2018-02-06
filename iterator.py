@@ -3,66 +3,66 @@
 import cv2
 import os
 
-class FrameIterator (object) : 
+class FrameIterator (object) :
 
-    
-    def __init__ (self, fpath) : 
+
+    def __init__ (self, fpath) :
         self.fpath = fpath
-        if os.path.isdir (fpath) : 
+        if os.path.isdir (fpath) :
             # then its a frame
             # create iterator of file
             self.gen = self.listdir ()
 
             # define class iterator
-            def get_next () : 
-                for next_img in self.gen : 
-                    if next_img is not None : 
+            def get_next () :
+                for next_img in self.gen :
+                    if next_img is not None :
                         return next_img
-                    else : 
+                    else :
                         raise StopIteration
-                    
-        else : 
+
+        else :
             # then its a video
             self.input_video = cv2.VideoCapture (fpath)
             self.fps = self.input_video.get (cv2.CAP_PROP_FPS)
 
-            def get_next () : 
-                if self.input_video.isOpened () : 
+            def get_next () :
+                if self.input_video.isOpened () :
                     ret, frame = self.input_video.read ()
                     return frame
-                else : 
+                else :
                     raise StopIteration
 
-        self.get_next = get_next 
+        self.get_next = get_next
 
-    def __iter__ (self) : 
+    def __iter__ (self) :
         return self
 
-    def __next__ (self) : 
+    def __next__ (self) :
         return self.get_next ()
 
 
-    def next (self) : 
+    def next (self) :
         return self.__next__ ()
 
-    def listdir (self) : 
+    def listdir (self) :
         # sort first based on its path
         paths = sorted (os.listdir (self.fpath), key=lambda x: int (x.split ('.')[0]))
 
         # iterate each image
-        for img in paths : 
+        for img in paths :
             frame_path_full = os.path.join (self.fpath, img )
             this_img = cv2.imread (frame_path_full, 1)
 
             yield this_img
 
-        return None 
+        yield None
 
 if __name__ == '__main__' :
     # fpath = './data/sample/session0_center.avi' # for video
     fpath = './data/sample/session0_center' # for image
     fi = FrameIterator (fpath)
-    while (True) : 
+    while (True) :
         img = next (fi)
 
         cv2.imshow ('default', img)

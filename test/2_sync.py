@@ -22,22 +22,22 @@ session = {
 }
 
 ctr = 0
-while True : 
+while True :
     frame = None
 
     # load image from each view
-    for view in session[0] : 
+    for view in session[0] :
         fpath = '../data/sample/session0_{}/{:04d}.jpg'.format (
-                view, 
+                view,
                 session[0][view] + ctr
             )
 
         view_frame = cv2.imread (fpath, 1)
 
         # combine each view
-        if frame is None : 
+        if frame is None :
             frame = view_frame
-        else : 
+        else :
             frame = np.hstack ((frame, view_frame))
 
     # show image

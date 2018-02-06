@@ -17,7 +17,7 @@ session_id = 'session0_right'
 
 mask_path = '../data/gt/2016-ITS-BrnoCompSpeed/dataset/{}/video_mask.png'.format (session_id)
 mask = cv2.imread (mask_path, 0)
-        
+
 fi = FrameIterator ('../data/sample/{}'.format (session_id))
 bg = BackgroundModel (fi)
 
@@ -26,7 +26,7 @@ bg.learn (tot_frame_init=1)
 print ("Done")
 
 ctr_frame = 2
-while True : 
+while True :
     img = next (fi)
     frame = img
     fg = bg.apply (img)
