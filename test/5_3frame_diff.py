@@ -29,6 +29,8 @@ while True :
     prev_diff = cv2.absdiff (prev_img[-2], prev_img[-1])
     curr_diff = cv2.absdiff (prev_img[-2], img)
     frame = prev_diff + curr_diff
+    frame2 = cv2.bitwise_and (prev_diff, curr_diff)
+    frame = cv2.bitwise_or (frame, frame2)
 
     frame = cv2.cvtColor (frame, cv2.COLOR_BGR2GRAY)
     frame = cv2.threshold (frame, 50.0, 255.0, cv2.THRESH_BINARY)[1]
