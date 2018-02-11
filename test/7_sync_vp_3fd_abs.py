@@ -13,7 +13,7 @@ sys.path.append (os.path.join (path_this, '..'))
 from iterator import FrameIterator
 from background import BackgroundModel
 from util import *
-from geometry import get_extreme_tan_point, Line, get_extreme_tan_point_contours, get_extreme_tan_point_contours_real
+from geometry import get_extreme_tan_point, Line, get_extreme_tan_point_contours_real, get_extreme_side_point
 
 kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
 
@@ -103,7 +103,7 @@ while True :
         fg = cv2.threshold (fg, 10.0, 255.0, cv2.THRESH_BINARY)[1] # thresholding
 
         # remove noise
-        # fg = process_morphological (fg)
+        fg = process_morphological (fg)
         # apply mask
         fg = cv2.bitwise_and (fg, masks[_id][view])
         # get blobs
@@ -111,27 +111,19 @@ while True :
 
         # drawing
         frame = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR)
+        # frame = img
         frame = draw_bounding_box_contours (frame, blobs)
 
         # only consider that has object on it
         if blobs :
 
-            highest_pair = get_extreme_tan_point_contours_real (
-                    vp1,
-                    vp2,
-                    blobs
-                )
+            for b in blobs : 
+                extreme_point = get_extreme_side_point (vp1, vp2, b)
+                for p in extreme_point : 
+                    p = tuple ([int (_) for _ in p])
 
-            # then draw
-            lines = [
-                Line.from_two_points (highest_pair['bottom']['point'], vp2),
-                # Line.from_two_points (highest_pair['right']['point'], vp1),
-                # Line.from_two_points (highest_pair['left']['point'], vp1)
-                # Line (None, highest_pair['left']['point'][0])
-                Line.from_two_points (highest_pair['left']['point'], vp1)
-            ]
-            for l in lines : 
-                frame = l.draw (frame)
+                    # draw it
+                    frame = cv2.circle (frame, p, 10, (255,0,0), -1)
 
         # combine each view
         if view_frame is None :
