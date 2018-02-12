@@ -123,7 +123,7 @@ def get_extreme_tan_point (point, contour, axis=0) :
 
     return tan_point_left, tan_point_right
 
-def get_extreme_tan_point_contours (point, contours, axis=0) : 
+def get_extreme_tan_point_contours (point, contours, axis=0) :
     # get right and left (or up and down) tangent line from a
     # given point of a collection of countours
     # its extreme tangent line is tangent line that has biggest or smallest
@@ -137,18 +137,23 @@ def get_extreme_tan_point_contours (point, contours, axis=0) :
     tan_point_right = None
     # right_most_point = find_right_most_point (contour)
 
-    if point is None :
-        # mean its principle point
-        for c in contour :
-            c = c[0]
-            if tan_point_right is None or c[axis] > tan_point_right[axis] :
-                tan_point_right = c
+    # get the 'real' right or left extrema tangent line
+    # by finding the object that right of leftmost and
+    # based on
 
-            if tan_point_left is None or c[axis] < tan_point_left[axis] :
-                tan_point_left = c
+    if point is None :
+        for contour in contours :
+            # mean its principle point
+            for c in contour :
+                c = c[0]
+                if tan_point_right is None or c[axis] > tan_point_right[axis] :
+                    tan_point_right = c
+
+                if tan_point_left is None or c[axis] < tan_point_left[axis] :
+                    tan_point_left = c
 
     else :
-        for contour in contours : 
+        for contour in contours :
             # for each contour point
             for c in contour :
                 c = c[0]
@@ -172,6 +177,92 @@ def get_extreme_tan_point_contours (point, contours, axis=0) :
                     tan_point_left = c
 
     return tan_point_left, tan_point_right
+
+def get_extreme_tan_point_contours_real (vp1, vp2, contours, axis=0) :
+    highest_pair = {
+            'bottom' : {'angle' : None, 'point' : None},
+            'right' : {'angle' : None, 'pont' : None},
+            'left' :  {'angle' : None, 'point' : None}
+        }
+
+    for contour in contours :
+        angle = {
+                'min' : [None, None, None],
+                'max' : [None, None, None]
+            }
+
+        tanp = {
+                'right' : [None, None, None],
+                'left' : [None, None, None]
+            }
+
+        for c in contour :
+            c = c[0]
+
+            # first from the  VP-2 find the outmost bottom
+            ang = math.atan2 (c[1] - vp2[1], c[0] - vp2[0])
+            if angle['max'][1] is None or angle['max'][1] < ang :
+                angle['max'][1] = ang
+                tanp['right'][1] = c
+            if angle['min'][1] is None or angle['min'][1] > ang :
+                angle['min'][1] = ang
+                tanp['left'][1] = c
+
+            # then from VP-3 find both left, right
+            if tanp['right'][2] is None or c[axis] > tanp['right'][2][axis] :
+                tanp['right'][2] = c
+
+            if tanp['left'][2] is None or c[axis] < tanp['left'][2][axis] :
+                tanp['left'][2] = c
+
+            ang = math.atan2 (c[1] - vp1[1], c[0] - vp1[0])
+            if angle['max'][0] is None or angle['max'][0] < ang :
+                angle['max'][0] = ang
+                tanp['right'][0] = c
+            if angle['min'][0] is None or angle['min'][0] > ang :
+                angle['min'][0] = ang
+                tanp['left'][0] = c
+
+        # then find intersection point
+        line_vp2l = Line.from_two_points (tanp['left'][1], vp2)
+        line_vp3r = Line (None, tanp['right'][2][axis])
+        line_vp3l = Line (None, tanp['left'][2][axis])
+        p_vp3 = [
+                line_vp2l.get_intersection (line_vp3r),
+                line_vp2l.get_intersection (line_vp3l)
+            ]
+
+        """
+        for p in p_vp3 :
+            # then its angle from vp1
+            ang = math.atan2 (p[1] - vp1[1], p[0] - vp1[0])
+
+            # if its max, save
+            if angle['max'][0] is None or angle['max'][0] < ang:
+                angle['max'][0] = ang
+                tanp['right'][0] = c
+
+            # if its lowest, save
+            if angle['min'][0] is None or angle['min'][0] > ang :
+                angle['min'][0] = ang
+                tanp['left'][0] = c
+        """
+
+        if highest_pair['bottom']['angle'] is None or highest_pair['bottom']['angle'] > angle['min'][1] :
+            highest_pair['bottom']['angle'] = angle['min'][1]
+            highest_pair['bottom']['point'] = tanp['left'][1]
+
+        if highest_pair['right']['angle'] is None or highest_pair['right']['angle'] < angle['max'][0] :
+            highest_pair['right']['angle'] = angle['max'][0]
+            highest_pair['right']['point'] = tanp['right'][0]
+
+        if highest_pair['left']['angle'] is None or highest_pair['left']['angle'] > angle['min'][0] :
+            highest_pair['left']['angle'] = angle['min'][0]
+            highest_pair['left']['point'] = tanp['left'][0]
+
+    highest_pair['left']['point'] = p_vp3[0]
+
+    return highest_pair
 
 def find_right_most_point (contour) :
     # initial point
@@ -358,3 +449,54 @@ def draw_bounding_ground (frame, contour, vp1, vp2) :
 
 
     return frame
+
+def get_extreme_side_point (vp1, vp2, contour, axis=0) : 
+    angle = {
+            'min' : [None, None, None],
+            'max' : [None, None, None]
+        }
+
+    tanp = {
+            'right' : [None, None, None],
+            'left' : [None, None, None]
+        }
+
+    for c in contour :
+        c = c[0]
+
+        # from the  VP-2 find the outmost bottom
+        ang = math.atan2 (c[1] - vp2[1], c[0] - vp2[0])
+        if angle['max'][1] is None or angle['max'][1] < ang :
+            angle['max'][1] = ang
+            tanp['right'][1] = c
+        if angle['min'][1] is None or angle['min'][1] > ang :
+            angle['min'][1] = ang
+            tanp['left'][1] = c
+
+        # from VP-3 find both left, right
+        if tanp['right'][2] is None or c[axis] > tanp['right'][2][axis] :
+            tanp['right'][2] = c
+
+        if tanp['left'][2] is None or c[axis] < tanp['left'][2][axis] :
+            tanp['left'][2] = c
+
+        # from the VP-1 find the right and left
+        ang = math.atan2 (c[1] - vp1[1], c[0] - vp1[0])
+        if angle['max'][0] is None or angle['max'][0] < ang :
+            angle['max'][0] = ang
+            tanp['right'][0] = c
+        if angle['min'][0] is None or angle['min'][0] > ang :
+            angle['min'][0] = ang
+            tanp['left'][0] = c
+
+    # then find intersection point
+    # first from leftmost vp1 and leftmost vp2
+    l1 = Line.from_two_points (tanp['right'][0], vp1)
+    l2 = Line.from_two_points (tanp['left'][1], vp2)
+
+    # first point is the intersection between right most of vp1 and left most of vp2
+    p1 = l1.get_intersection (l2)
+    # second point is the intersection between left most and VP3
+    p2 = Line (None, tanp['right'][2][axis]).get_intersection (l2)
+
+    return [p1, p2] 
