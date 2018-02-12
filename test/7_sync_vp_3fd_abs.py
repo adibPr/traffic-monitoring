@@ -13,7 +13,7 @@ sys.path.append (os.path.join (path_this, '..'))
 from iterator import FrameIterator
 from background import BackgroundModel
 from util import *
-from geometry import get_extreme_tan_point, Line, get_extreme_tan_point_contours_real, get_extreme_side_point
+from geometry import get_extreme_tan_point, Line, get_extreme_side_point
 
 kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
 
