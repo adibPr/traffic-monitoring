@@ -13,7 +13,7 @@ sys.path.append (os.path.join (path_this, '..'))
 from iterator import FrameIterator
 from background import BackgroundModel
 from util import *
-from geometry import get_extreme_tan_point, Line, get_extreme_side_point
+from geometry import get_extreme_tan_point, Line, get_extreme_side_point, find_right_most_point
 
 kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
 
@@ -86,9 +86,10 @@ for view in session[_id] :
 ctr = 0
 while True :
     view_frame = None
+    prev_frame = [None, None, None]
 
     # load image from each view
-    for view in session[_id] :
+    for view_idx, view in enumerate (session[_id]) :
         img = next (fi[_id][view])
 
         vp1 = vps[_id][view]['vp1']
@@ -114,29 +115,48 @@ while True :
 
         # drawing
         frame = cv2.cvtColor (fgs, cv2.COLOR_GRAY2BGR)
-        # frame = img
+        frame = img
         # frame = draw_bounding_box_contours (frame, blobs)
+        # frame = fg
 
         # only consider that has object on it
         if blobs :
 
             for b in blobs : 
-                extreme_point = get_extreme_side_point (vp1, vp2, b)
-                for p in extreme_point : 
-                    p = tuple ([int (_) for _ in p])
 
-                    # draw it
-                    frame = cv2.circle (frame, p, 10, (255,0,0), -1)
+                # first get from left to right
+                c1_right, c1_left = get_extreme_tan_point (vp1, b)
+                c2_right, c2_left = get_extreme_tan_point (vp2, b)
+                c3_right, c3_left = get_extreme_tan_point (None, b)
 
-        # swap the prev_image
-        prev_fg[_id][view][0] = prev_fg[_id][view][1]
-        prev_fg[_id][view][1] = fg 
+                # get line
+                line = [
+                        Line.from_two_points (vp1, c1_left),
+                        Line.from_two_points (vp2, c2_right),
+                        Line (None, c3_left[0])
+                    ]
+
+                for l_idx, l in enumerate (line) : 
+                    color = [0, 0, 0]
+                    color[l_idx] += 255
+                    frame = l.draw (frame, color=color)
+
+                # draw corner point 
+                cp = [
+                        line[0].get_intersection (line[1]),
+                        line[1].get_intersection (line[2])
+                    ]
+
+                for c in cp : 
+                    frame = cv2.circle (frame, tuple ([int (_) for _ in c]) , 10, (50,100,255), -1)
 
         # combine each view
         if view_frame is None :
             view_frame = frame
         else :
             view_frame = np.hstack ((frame, view_frame))
+
+        prev_frame[view_idx] = frame.copy ()
 
     frame = view_frame
 
@@ -147,7 +167,12 @@ while True :
     # show image
     cv2.imshow ('default', frame)
 
+    if ctr == 17 : 
+        for f_idx, f in enumerate (prev_frame) : 
+            cv2.imwrite ('out-{}.jpg'.format (f_idx), f)
+        sys.exit ()
+
     if (cv2.waitKey(1) & 0xFF == ord('q')) :
         break
-
+    
     ctr += 1
