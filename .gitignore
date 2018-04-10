@@ -1,3 +1,4 @@
 data/
 *.sw*
 *.old
+/test/result

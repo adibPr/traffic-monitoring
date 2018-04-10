@@ -75,6 +75,35 @@ class Line (object) :
 
         return Line (m, b)
 
+    @staticmethod
+    def from_polar (d, theta) : 
+        x = d * math.cos (theta)
+        y = d * math.sin (theta)
+        return Line.from_two_points ((x,0), (0,y))
+
+    def to_polar (self) : 
+        # first, we need to find distance from origin, (0,0) to the line that is
+        # perpendicular.
+        # ref: https://en.wikipedia.org/wiki/Distance_from_a_point_to_a_line
+        # since we have  y = mx + b, then mx -y + b = 0
+        d = abs (self.b) / math.sqrt (math.pow (self.m,2) + 1)
+
+        # then we find the intersection point
+        x = -(self.m * self.b) / (math.pow(self.m, 2) + 1)
+        y = self.b / (math.pow(self.m, 2) + 1)
+
+        # then we find theta (in radian)
+        try : 
+            theta = math.atan (y/x)
+        except ZeroDivisionError : 
+            # mean that x is 0
+            # take random number, get the y
+            x = 3
+            y = self.m * x + self.b
+            theta = math.atan (y/x)
+
+        return (d, theta)
+
 
 def get_extreme_tan_point (point, contour, axis=0) :
     # get right and left (or up and down) tangent line from a given point
