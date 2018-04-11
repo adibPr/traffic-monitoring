@@ -8,11 +8,14 @@ import numpy as np
 def process_morphological (fg_binary) :
 
     # morphological kernel
-    kernel = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
+    kernel3 = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
+    kernel10 = cv2.getStructuringElement (cv2.MORPH_CROSS, (10, 10))
 
     # noise removal
-    result = cv2.morphologyEx(fg_binary, cv2.MORPH_OPEN, kernel)
-    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, kernel)
+    result = cv2.morphologyEx(fg_binary, cv2.MORPH_OPEN, kernel3)
+    result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, kernel3)
+
+    result = cv2.dilate (result, kernel10 , iterations=1)
 
     return result
 

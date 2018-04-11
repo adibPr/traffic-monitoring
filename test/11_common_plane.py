@@ -17,41 +17,182 @@ from background import BackgroundModel
 from util import *
 from geometry import get_extreme_tan_point, Line, get_extreme_side_point, find_right_most_point
 
-def is_blob_neighbor (b1, b2, thres=3) : 
-    """
-    Function to detect wether two blobs, b1, b2 is neighbor to each other
-    @input:
-        - b1: first blob object
-        - b2: second blob object
-    @param:
-        - thres, [float] threshold in pixel
-    @output:
-        - is_blob
-    """
+class TopBottomLine (object) : 
 
-    blobs = (b1, b2)
-    centers = []
-    corner_center_dist = []
-    
-    def distance (p1, p2) : 
-        return math.sqrt (math.pow (p2[0] - p1[0], 2) + math.pow (p2[1] - p1[1], 2))
+    def __init__ (self, shape, **kwargs) :
+        """
+        Defined some reserved variable
+        @input:
+            - shape: [Int, Int, Int], the shape of our frame. This become input
+                because our calculation of  $TOT_BUCKET_THETA based on this.
+        @param:
+            - TOT_BUCKET_D=100, Int, total bucket of distance of the line from origin 
+                (or r in polar representation)
+            - TOT_BUCKET_THETA=10, Int, total bucket of degree
+            - thres=3, Int, minimum frequencies of a bin to be selected as top line
+            - channel=3, Int, total different view
+        @output:
+            -
+        """
+        self.kwargs = kwargs
 
-    for b in blobs : 
-        # first find center of both blobs
-        x,y, w, h = cv2.boundingRect (b)
-        centers.append ((x+(w/2), y+(h/2)))
+        # some default parameter
+        self.kwargs.setdefault ("TOT_BUCKET_D", 100)
+        self.kwargs.setdefault ("TOT_BUCKET_THETA", 10)
+        self.kwargs.setdefault (
+                "RATIO_BUCKET_D",
+                math.sqrt (shape[1] ** 2 + shape[0] ** 2) / self.kwargs['TOT_BUCKET_D']
+            )
+        self.kwargs.setdefault (
+                "RATIO_BUCKET_THETA", 
+                float (4) / (self.kwargs['TOT_BUCKET_THETA'] * 2)
+            )
+        self.kwargs.setdefault ('thres', 3) 
+        self.kwargs.setdefault ('channel', 3)
 
-        # then calculate max distance
-        corner_center_dist.append (distance (centers[-1], (x,y)))
+        self.bucket_max = [(None, -1), (None, -1)]
+        self.bucket_freq = {}
+        self.shape = shape
+        self.is_found0 = False
+        self.is_found1 = False
+        self.prev_r = [None] * self.kwargs['channel'] # radius in real measurement (pixel)
+        self.prev_params = [None] * self.kwargs['channel'] # in parameter form
 
-    # then calculate distance between two center
-    center_dist = distance (*centers)
+    def update0 (self, lines) : 
+        """
+        find the first line, line that correspondent to the first visible on the scene
+        @input:
+            - lines, [Line], minimum line from a frame that has 
+        @param: 
+            -
+        @output:
+            -
+        """
 
-    # check if this center below thres
-    if center_dist <= sum (corner_center_dist) + thres :
-        return True
-    else : 
-        return False
+        assert len (lines) == self.kwargs['channel'], "Input lines length must be {}".format (self.channel)
+
+        line_params = []
+        polars = []
+        for line in lines : 
+            if line is None or line.b > self.shape[0] : 
+                polar = None
+                line_params.extend ((None, None))
+            else : 
+                polar = line.to_polar ()
+                line_params.extend ((
+                    int (polar[0] / self.kwargs['RATIO_BUCKET_D']), 
+                    int ((polar[1] + 2) / self.kwargs['RATIO_BUCKET_THETA'])# +2 to make all positive
+                ))
+
+            polars.append (polar)
+
+        line_params = tuple (line_params)
+        # only update that doesn't have None
+        if (all ([_ is not None for _ in line_params])) : 
+            self.bucket_freq[line_params] = self.bucket_freq.get (line_params, 0) + 1
+
+            if self.bucket_freq[line_params] > self.bucket_max[0][1] :
+                self.bucket_max[0] = (line_params, self.bucket_freq[line_params])
+
+        if self.bucket_max[0][1] >= self.kwargs['thres'] : 
+            self.is_found0 = True
+            self.prev_r = [_[0] for _ in polars]
+            self.prev_params = line_params
+
+    def update1 (self, lines) :
+        """
+        find the second line, line that correspondent to the maximum line before
+        the synced line vanished
+        @input:
+            - lines, [Line], minimum line from a frame that has 
+        @param: 
+            -
+        @output:
+            -
+        """
+        # maximum is prev lines
+        this_r = []
+        line_params = []
+        # if exist lines that current lines is None, or 
+        for l_idx, line in enumerate (lines) : 
+            if line is None or line.b > self.shape[0]: 
+                self.bucket_max[1] = (self.prev_params, 0)
+                self.is_found1 = True
+                return
+
+            else : 
+                polar = line.to_polar ()
+
+                line_params.extend ((
+                    int (polar[0] / self.kwargs['RATIO_BUCKET_D']), 
+                    int ((polar[1] + 2) / self.kwargs['RATIO_BUCKET_THETA'])# +2 to make all positive
+                ))
+
+                this_r.append (polar[0])
+
+        # this r is lower than previous r, then
+        # in here lower means that if the difference is in one sign
+        diff_r = [this_r[i] - self.prev_r[i]]
+        # so if not, then we found it
+        if not (all ([_ < 0 for _ in diff_r]) or all ([_ >= 0 for _ in diff_r])) :
+            self.bucket_max = (line_params, 0)
+            self.is_found1 = True
+            return
+        else : 
+            # update for next iteration
+            self.prev_r = this_r
+            self.prev_params = line_params
+
+    def update (self, lines) : 
+        """
+        Adjust parameter based on new update of all channel line
+        @input:
+            - lines, [Line], minimum line from a frame that has 
+        @param: 
+            -
+        @output:
+            -
+        """
+        if not self.is_found0 : 
+            self.update0 (lines)
+        else : 
+            if not self.is_found1 : 
+                self.update1 (lines)
+
+    def inverse_bin (self, b) : 
+        """
+        Convert back from bin index into r-theta approx values
+        @input:
+            - b, [Int, Int], bin index
+        @param:
+            -
+        @output:
+            - (r, theta), (float, float) the line parameter
+        """
+
+        r, theta = b[0] * self.kwargs['RATIO_BUCKET_D'], b[1] * self.kwargs['RATIO_BUCKET_THETA'] - 2
+        return (r, theta)
+
+    def inverse_bin_Line (self, b, point):
+        """
+        Convert back from bin index into a Line, drawn from a point
+        @input:
+            - b, [Int, Int], bin index
+            - point, [Float, Float], (x,y) value coordinate, a reference point to
+                create a Line
+        @param:
+            -
+        @output:
+            - line, a Line object
+        """
+
+        r, theta = self.inverse_bin (b)
+        x = r * math.cos (theta)
+        y = r * math.sin (theta)
+        l = Line.from_two_points ((x,y), point)
+
+        return l
+
 
 cv2.namedWindow ('default', flags=cv2.WINDOW_NORMAL)
 
@@ -102,24 +243,22 @@ for view in session[_id] :
 
 # initialing prev blobs
 prev_img = {_id : {}}
+prev_img_color= {_id : {}}
 for view in session[_id] : 
     prev_img[_id][view] = [None, None]
+    prev_img_color[_id][view] = [None, None]
     for i in range (2) : 
         img = next (fi[_id][view])
+        img_color = img.copy ()
         img = cv2.cvtColor (img, cv2.COLOR_BGR2GRAY)
 
-        # by background subtraction
-        # fg = bms[_id][view].apply (img)
-        # remove shadows, i.e value 127
-        # fg = cv2.threshold (fg, 200, 255, cv2.THRESH_BINARY)[1]
-
-        # remove noise
-        # fg = process_morphological (fg)
-        # apply mask
-        # fg = cv2.bitwise_and (fg, masks[_id][view])
-        
         # save background
         prev_img[_id][view][i] = img 
+        prev_img_color[_id][view][i] = img_color
+
+# load json gt data
+with open ('../data/sync_25fps/common_point/result.json') as f_buf : 
+    common_plane_coor = json.load (f_buf)
 
 # for storing extrema of vp1
 max_angle_vp1 = [None, None, None]
@@ -135,73 +274,82 @@ shape_3d.append (3)
 shape_3d = tuple (shape_3d)
 topbot_mask = [np.zeros (shape_3d), np.zeros (shape_3d), np.zeros (shape_3d)]
 
-# constant for bucketing
-TOT_BUCKET_D = 30
-TOT_BUCKET_THETA = 10 # per circle, so from -2pi to 2pi will be theta*2 bucket
-RATIO_BUCKET_D = math.sqrt (masks[_id][view].shape[1] ** 2 + masks[_id][view].shape[0] ** 2) / TOT_BUCKET_D
-RATIO_BUCKET_THETA = float (4) / (TOT_BUCKET_THETA * 2)
+kernel10 = cv2.getStructuringElement(cv2.MORPH_CROSS,(10,10))
 
-bucket_freq = [{}, {}]
-bucket_max = [(None, -1), (None, -1)]
-
+TBL = TopBottomLine (shape_3d)
 
 ctr = 0
 while True :
     view_frame = None
     prev_frame = [None, None, None]
 
-    line_params_top = []
-    line_params_bot = []
-    final_params_combine = []
+    line_extreme_vp2 = []
 
     # load image from each view
     for view_idx, view in enumerate (session[_id]) :
-
         img = next (fi[_id][view])
+        img_color = img.copy ()
         img = cv2.cvtColor (img, cv2.COLOR_BGR2GRAY)
 
         vp1 = vps[_id][view]['vp1']
         vp2 = vps[_id][view]['vp2']
 
         # by MOG background subtraction
-        fg = bms[_id][view].apply (prev_img[_id][view][1])
+        fg_mog = bms[_id][view].apply (prev_img[_id][view][1])
         # remove shadows, i.e value 127
-        fg = cv2.threshold (fg, 200, 255, cv2.THRESH_BINARY)[1]
+        fg_mog = cv2.threshold (fg_mog, 200, 255, cv2.THRESH_BINARY)[1]
 
         # by 3 frame difference
-        prev_img_intersect = cv2.threshold (cv2.absdiff (prev_img[_id][view][1], prev_img[_id][view][0]), 25, 255, cv2.THRESH_BINARY)[1]
-        curr_fg_intersect = cv2.threshold (cv2.absdiff (img, prev_img[_id][view][1]), 25, 255, cv2.THRESH_BINARY)[1]
-        fg_3frame = cv2.bitwise_or (prev_img_intersect, curr_fg_intersect)
+        prev_intersect = cv2.threshold (cv2.absdiff (prev_img[_id][view][1], prev_img[_id][view][0]), 25, 255, cv2.THRESH_BINARY)[1]
+        next_intersect = cv2.threshold (cv2.absdiff (img, prev_img[_id][view][1]), 25, 255, cv2.THRESH_BINARY)[1]
 
-        # combine by MOG and 3frame
-        fg = cv2.bitwise_and (fg, fg_3frame)
+        # by 3 frame of "Vehicle speed measurement based on gray constraint optical flow algorithm"
+        P1 = cv2.bitwise_and (prev_intersect, next_intersect)
+        # prev_intersect_dilate = cv2.dilate (prev_intersect, kernel10)
+        # next_intersect_dilate = cv2.dilate (next_intersect, kernel10)
+        prev_intersect_dilate = process_morphological (prev_intersect) 
+        next_intersect_dilate = process_morphological (next_intersect)
+        
+        P2 = cv2.bitwise_and (prev_intersect_dilate, next_intersect_dilate)
+        fg_3frame = cv2.bitwise_xor (P1, P2)
+
+        #? select fg method
+        # 1. combine 3frame and MOG
+        # fg = cv2.bitwise_xor (fg_mog, fg_3frame)
+        # 2. MOG only
+        # fg = fg_mog
+        # 3. 3frame modified only
+        # fg = fg_3frame
+        # 4. P2
+        fg = P2
+        # 5. Orig 3frame
+        # fg = P1
 
         # remove noise
         fg = process_morphological (fg)
         # apply mask
         fg = cv2.bitwise_and (fg, masks[_id][view])
 
-        cv2.imwrite ("result/{}-{}.jpg".format (
-            _id, view
-        ), curr_fg_intersect)
-
         # get blobs
         blobs = get_contours (fg)
 
-        # drawing
-        # frame = img
-        # frame = draw_bounding_box_contours (frame, blobs)
-        frame = fg
-        # frame = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR)
+        #? for drawing, choose you want :
+        #1. prev img
+        # frame = prev_img[_id][view][1]
+        #2. fg
+        # fg_color = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR) 
+        # frame = fg_color
+        #3. prev img color
+        frame = prev_img_color[_id][view][1]
+
+        #?. whether drawing bounding box
+        # frame = draw_bounding_box_contours (fg_color, blobs)
 
         # max angle from vp2 for this frame only
         max_angle_vp2 = None
         max_point_vp2 = None
         min_angle_vp2 = None
         min_point_vp2 = None
-
-        if len (blobs) >= 2 : 
-            is_blob_neighbor (blobs[0], blobs[1])
 
         for b in blobs : 
             # first get from left to right
@@ -217,10 +365,10 @@ while True :
                 ]
 
             # draw helper line, 
-            for l_idx, l in enumerate (line) : 
-                color = [0, 0, 0]
-                color[l_idx] += 255
-                # frame = l.draw (frame, color=color)
+            # for l_idx, l in enumerate (line[:-1]) : 
+            #     color = [0, 0, 0]
+            #     color[l_idx] += 255
+            #     frame = l.draw (frame)
 
             # get corner point 
             cp = [
@@ -228,8 +376,8 @@ while True :
                     line[1].get_intersection (line[2])
                 ]
             # draw corner point
-            for _ in cp : 
-                frame = cv2.circle (frame, tuple ([int (__) for __ in _]), 10, (0,0,255), -1)
+            # for _ in cp : 
+            #     frame = cv2.circle (frame, tuple ([int (__) for __ in _]), 10, (0,0,255), -1)
 
             # max-min for right-left
             for c_idx, c in enumerate (cp) : 
@@ -254,62 +402,27 @@ while True :
             # compute angle
             ang = math.atan2 (c[1] - vp2[1], c[0] - vp2[0])
 
-            # compare with current frame
-            if max_angle_vp2 is None or max_angle_vp2 < ang : 
-                max_angle_vp2 = ang
-                max_point_vp2 = c
-
             if min_angle_vp2 is None or min_angle_vp2 > ang : 
                 min_angle_vp2 = ang
                 min_point_vp2 = c
 
-
         # convert max top-bottom from point to polar line
-        if max_point_vp2 is not None : 
+        if min_point_vp2 is not None : 
             # first find its line parameter
-            line_params = [
-                    Line.from_two_points (vp2, max_point_vp2),
-                    Line.from_two_points (vp2, min_point_vp2)
-                ]
+            # just take the furthest (bottom)
+            l = Line.from_two_points (vp2, min_point_vp2)
+            line_extreme_vp2.append (l)
+        else : 
+            line_extreme_vp2.append (None)
 
-            # then convert to polar
-            polars = []
-            for lp_idx, lp in enumerate (line_params) : 
-                # check first, wether the intersection with y axis still
-                # in frame
-                if lp.b > frame.shape[0] : 
-                    polars.append (None)
-                else : 
-                    # draw top-bottom line
-                    # frame = lp.draw (frame, size=5, color=(0, 0, 255))
-                    topbot_mask[view_idx] = lp.draw (topbot_mask[view_idx], size=5, color=(255, 255, 255))
-                    polars.append (lp.to_polar ())
-
-            # convert it in its index form
-            # both for top and bottom
-            if polars[0] is not None : 
-                line_params_top.extend ((
-                    int (polars[0][0] / RATIO_BUCKET_D), 
-                    int ((polars[0][1] + 2) / RATIO_BUCKET_THETA)# +2 to make all positive
-                )) 
-            else : 
-                line_params_top.extend ((None, None))
-
-            if polars[1] is not None :
-                line_params_bot.extend ((
-                    int (polars[1][0] / RATIO_BUCKET_D), 
-                    int ((polars[1][1] + 2) / RATIO_BUCKET_THETA)
-                )) 
-            else : 
-                line_params_bot.extend ((None, None))
 
         # draw line of extreme left-right corner point
         if max_point_vp1[view_idx] is not None : 
             max_line = Line.from_two_points (vp1, max_point_vp1[view_idx])
             min_line = Line.from_two_points (vp1, min_point_vp1[view_idx])
 
-            frame = max_line.draw (frame, size=5, color=(200, 200, 219))
-            frame = min_line.draw (frame, size=5, color=(200, 200, 219))
+            frame = max_line.draw (frame, size=5, color=(0, 0, 255))
+            frame = min_line.draw (frame, size=5, color=(0, 0, 255))
 
         # frame = topbot_mask[view_idx]
         # frame = fg 
@@ -326,34 +439,43 @@ while True :
         prev_img[_id][view][0] = prev_img[_id][view][1]
         prev_img[_id][view][1] = img
 
+        prev_img_color[_id][view][0] = prev_img_color[_id][view][1]
+        prev_img_color[_id][view][1] = img_color
+
     frame = view_frame
 
-    # convert into tuple, so it can hashable
-    line_params_top = tuple (line_params_top)
-    line_params_bot = tuple (line_params_bot)
+    if not (TBL.is_found0 and TBL.is_found1) : 
+        TBL.update (line_extreme_vp2)
+    else : 
+        # assumption the right and left is already stable
+        if ctr == 500 : 
+            print (TBL.bucket_max)
+            line_result = []
+            for t in TBL.bucket_max : 
+                for i, v in enumerate (vps[_id]) : 
+                    this_bin = (t[0][2*i]+1, t[0][2*i + 1]+1)
+                    line_result.append (TBL.inverse_bin_Line (this_bin, vps[_id][v]['vp2']))
 
-    # only consider that complete and no None exist
-    # for top
-    if len (line_params_top) == 6 and all ([_ is not None for _ in line_params_top]) : 
-        bucket_freq[0][line_params_top] = bucket_freq[0].get (line_params_top, 0) + 1
+            # draw top bottom
+            for l_idx, l in enumerate (line_result) : 
+                prev_frame[l_idx % 3] = l.draw (prev_frame[l_idx % 3], color=(0,0,255))
 
-        if bucket_freq[0][line_params_top] > bucket_max[0][1] :
-            bucket_max[0] = (line_params_top, bucket_freq[0][line_params_top])
+            # draw ground truth
 
-    # and for bottom
-    if len (line_params_bot) == 6 and all ([_ is not None for _ in line_params_bot]) : 
-        bucket_freq[1][line_params_bot] = bucket_freq[1].get (line_params_bot, 0) + 1
+            for i, view in enumerate (session[_id]) : 
+                # draw line
+                lines =  [ 
+                        Line.from_two_points (common_plane_coor['session0'][view][0], vps[_id][view]['vp2']),  # top
+                        Line.from_two_points (common_plane_coor['session0'][view][-1], vps[_id][view]['vp2']), # bottom
+                        Line.from_two_points (common_plane_coor['session0'][view][1], vps[_id][view]['vp1']), # right 
+                        Line.from_two_points (common_plane_coor['session0'][view][2], vps[_id][view]['vp1']), # left 
+                    ]
 
-        if bucket_freq[1][line_params_bot] > bucket_max[1][1] :
-            bucket_max[1] = (line_params_bot, bucket_freq[1][line_params_bot])
+                for l in lines : 
+                    prev_frame[i] = l.draw (prev_frame[i], color=(0, 255, 0))
+                cv2.imwrite ('result/bottop-{}.jpg'.format (i), prev_frame[i])
+            sys.exit ()
 
-    print ("T : {} : {}".format (line_params_top, bucket_freq[0].get (line_params_top, 0)))
-    print ("B : {} : {}".format (line_params_bot, bucket_freq[1].get (line_params_bot, 0)))
-
-    # if found any index that occurance greater than threshold, exit
-    if all ([_[1] >= 5 for _ in bucket_max]) : 
-        print (bucket_max)
-        # sys.exit ()
 
     # drawing
     # put text of iterator
@@ -366,34 +488,5 @@ while True :
     if (cv2.waitKey(1) & 0xFF == ord('q')) :
         break
 
-    if ctr == 10 :
-        """
-        # also wirte  upper an bottom 
-        with open ('result.json','r') as f_buff : 
-            lines = json.load (f_buff)['result']
-            for line in lines[:1] : 
-                line = line[0]
-                for i in range (3): 
-                    r, theta = line[i*2], line[i*2+1]
-                    r *= RATIO_BUCKET_D
-                    theta = (theta * RATIO_BUCKET_THETA) - 2
-                    print (r, theta)
-
-                    # draw r, theta by convert it into a,b first
-                    # l = Line.from_polar (r, theta)
-                    x = r * math.cos (theta)
-                    y = r * math.sin (theta)
-                    l = Line.from_two_points ((x,y), vp2)
-                    prev_frame[i] = l.draw (prev_frame[i], size=5)
-
-        # write both max line and corner
-        for i in range (3) : 
-            cv2.imwrite ('line-{}.jpg'.format (i), prev_frame[i])
-            cv2.imwrite ('track-{}.jpg'.format (i), corner_mask[i])
-        
-        # sys.exit ()
-        # """
-
-    
     ctr += 1
     print (ctr)
