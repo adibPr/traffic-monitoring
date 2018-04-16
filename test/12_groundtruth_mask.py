@@ -10,55 +10,24 @@ import numpy as np
 path_this = os.path.abspath (os.path.dirname (__file__))
 sys.path.append (os.path.join (path_this, '..'))
 
-
 from iterator import FrameIterator
+import util
 
-cv2.namedWindow ('default', flags=cv2.WINDOW_NORMAL)
+mask = util.MaskLoader ()
 
-session = {
-    0 : {
-        'center' : None,
-        'right' : None,
-        'left' : None 
-    }
-}
+for ses_id in range (0, 7) : 
+    # load masks
+    this_mask =  mask.get_session (ses_id, as_color=True)
 
-_id = 0
-# load masks
-masks =  {}
-for view in session[_id] : 
-    mask_path = '../data/gt/2016-ITS-BrnoCompSpeed/dataset/session{}_{}/video_mask.png'.format (_id, view)
-    masks[view] = cv2.imread (mask_path, 0)
-    masks[view] = cv2.cvtColor (masks[view], cv2.COLOR_GRAY2BGR) 
-    
+    # load frame iterator
+    fi = util.FrameIteratorLoader.get_session (ses_id)
 
-# generate frame iterator
-fi = {}
-for view in session[_id] : 
-    fi[view] = FrameIterator ('../data/sync_25fps/session{}_{}'.format (_id, view))
-
-img = {}
-for i in range (300) : 
-    view_frame = None
-    for view in session[_id] : 
+    for view in this_mask.keys () : 
         img_color = next (fi[view])
-        img[view] = cv2.addWeighted (img_color, 0.7, masks[view], 0.3, 0)
+        img_color = cv2.addWeighted (img_color, 0.7, this_mask[view], 0.3, 0)
 
-        # combine view
-        if view_frame is None : 
-            view_frame = img[view]
-        else : 
-            view_frame = np.hstack ((img[view], view_frame))
+        # check output directory if exist
+        if not os.path.exists ('result/masked') : 
+            os.makedirs ('result/masked')
 
-    # add text
-    loc = (20, view_frame.shape[0]-20)
-    cv2.putText (view_frame, 'Frame - {}'.format (i + 1), loc, cv2.FONT_HERSHEY_PLAIN, 3, (0, 128, 128), 4)
-
-    # show time
-    cv2.imshow ('default', view_frame)
-    if (cv2.waitKey(1) & 0xFF == ord('q')) :
-        break
-    
-    if i == 0 : 
-        for view in session[_id] : 
-            cv2.imwrite ('result/masked_bot-{}.jpg'.format (view), img[view])
+        cv2.imwrite ('result/masked/session{}-{}.jpg'.format (ses_id, view), img_color)

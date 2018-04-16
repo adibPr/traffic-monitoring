@@ -377,7 +377,7 @@ while True :
                 ]
             # draw corner point
             # for _ in cp : 
-            #     frame = cv2.circle (frame, tuple ([int (__) for __ in _]), 10, (0,0,255), -1)
+            #     frame = cv2.circle (frame, tuple ([int (__) for __ in _]), 11, (0,0,255), -1)
 
             # max-min for right-left
             for c_idx, c in enumerate (cp) : 
@@ -421,8 +421,8 @@ while True :
             max_line = Line.from_two_points (vp1, max_point_vp1[view_idx])
             min_line = Line.from_two_points (vp1, min_point_vp1[view_idx])
 
-            frame = max_line.draw (frame, size=5, color=(0, 0, 255))
-            frame = min_line.draw (frame, size=5, color=(0, 0, 255))
+            # frame = max_line.draw (frame, size=5, color=(0, 0, 255))
+            # frame = min_line.draw (frame, size=5, color=(0, 0, 255))
 
         # frame = topbot_mask[view_idx]
         # frame = fg 
@@ -460,8 +460,27 @@ while True :
             for l_idx, l in enumerate (line_result) : 
                 prev_frame[l_idx % 3] = l.draw (prev_frame[l_idx % 3], color=(0,0,255))
 
-            # draw ground truth
+            # saving the result
+            result = {"session0" : {}}
+            for view_idx, view in enumerate (session[_id]) :
+                max_line = Line.from_two_points (vps[_id][view]['vp1'], max_point_vp1[view_idx])
+                min_line = Line.from_two_points (vps[_id][view]['vp1'], min_point_vp1[view_idx])
+                result['session0'][view] = [
+                            # top-left, intersection of  max and the first
+                            max_line.get_intersection (line_result[view_idx]), 
+                            # top-right,  intersection of min and the first
+                            min_line.get_intersection (line_result[view_idx]),
+                            # bot-left, intersection of max and the second
+                            max_line.get_intersection (line_result[3 + view_idx]),
+                            # bot-right, intersection of min adn the second
+                            min_line.get_intersection (line_result[3 + view_idx])
+                        ]
 
+            with open ('result/500-iteration.json', 'w') as f_json : 
+                json.dump (result, f_json)
+
+            """
+            # draw ground truth
             for i, view in enumerate (session[_id]) : 
                 # draw line
                 lines =  [ 
@@ -474,7 +493,12 @@ while True :
                 for l in lines : 
                     prev_frame[i] = l.draw (prev_frame[i], color=(0, 255, 0))
                 cv2.imwrite ('result/bottop-{}.jpg'.format (i), prev_frame[i])
+            """
             sys.exit ()
+
+        for i, view in enumerate (session[_id]) : 
+            cv2.imwrite ('result/bottop-{}.jpg'.format (view, prev_frame[i]))
+        sys.exit ()
 
 
     # drawing
