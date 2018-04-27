@@ -369,10 +369,24 @@ def get_position (vp, shape) :
 VP = VPLoader ()
 MASK = MaskLoader ()
 VIEW = ("right", "center", "left")
+# """
+MAX_ITERATION = [
+    6507,
+    6144,
+    6959,
+    4199,
+    5123,
+    6622,
+    6483
+]
+# """
+# MAX_ITERATION = [100] * 7
+
+result = {}
 
 cv2.namedWindow ('default', flags=cv2.WINDOW_NORMAL)
 
-for ses_id in range (5, 6) : 
+for ses_id in range (4, 5) : 
 
     # some variable
     vp = VP.get_session (ses_id)
@@ -390,6 +404,9 @@ for ses_id in range (5, 6) :
         
         prev_img[view] = [None, None]
         prev_img_color[view] = [None, None]
+
+        for i in range (550) : 
+            next (fi[view])
 
         for i in range (2) : 
             img = next (fi[view])
@@ -414,8 +431,7 @@ for ses_id in range (5, 6) :
 
     TBL = TopBottomLine (shape_3d)
 
-    ctr = 0
-    while True :
+    for ctr in range (min (1000, MAX_ITERATION[ses_id])) :
         view_frame = None
         prev_frame = {}
         for view in VIEW : 
@@ -460,9 +476,9 @@ for ses_id in range (5, 6) :
             # get blobs
             blobs = get_contours (fg)
 
-            frame = prev_img_color[view][1] # why one ? because [prev, cur], next
-            # frame = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR)
-            # frame = draw_bounding_box_contours (frame, blobs)
+            # frame = prev_img_color[view][1] # why one ? because [prev, cur], next
+            frame = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR)
+            frame = draw_bounding_box_contours (frame, blobs)
 
             corner_points = get_corner_points (blobs, vp1, vp2, vp1_pos, vp2_pos)
 
@@ -470,7 +486,7 @@ for ses_id in range (5, 6) :
             RLL[view].update (corner_points)
 
             # draw-right-left
-            # frame = RLL[view].draw (frame)
+            frame = RLL[view].draw (frame)
 
             # for vp2 this frame only
             min_angle_vp2 = None
@@ -551,13 +567,15 @@ for ses_id in range (5, 6) :
 
         else : 
             # assumption the right and left is already stable
-            if ctr <= 500 : 
+            if ctr >= 500 : 
                 # saving the result
-                # result = {"session{}".format (ses_id) : {}}
+                result["session{}".format (ses_id)] = {}
 
                 # draw top  bottom
-                for t in TBL.bucket_max : 
-                    for i, v in enumerate (VIEW) : 
+                for i, v in enumerate (VIEW) : 
+                    points = []
+
+                    for t in TBL.bucket_max : 
                         top_point = t[2][i]
                         l = Line.from_two_points (top_point, vp[v]['vp2'])
                         prev_frame[v] = l.draw (prev_frame[v], color=(0,0,255))
@@ -566,9 +584,14 @@ for ses_id in range (5, 6) :
                         max_line = Line.from_two_points (vp[v]['vp1'], RLL[v].max[1])
                         min_line = Line.from_two_points (vp[v]['vp1'], RLL[v].min[1])
 
+                        # save extreme points
+                        points.append (l.get_intersection (max_line)) # (top/bottom) right
+                        points.append (l.get_intersection (min_line)) # (top/bottom) left
+
                         # draw left right
                         # prev_frame[v] = max_line.draw (prev_frame[v], color=(0,0,255))
                         # prev_frame[v] = min_line.draw (prev_frame[v], color=(0,0,255))
+
 
 
                         """
@@ -584,9 +607,10 @@ for ses_id in range (5, 6) :
                                     min_line.get_intersection (line_result[3 + view_idx])
                                 ]
 
-                with open ('result/500-iteration.json', 'w') as f_json : 
-                    json.dump (result, f_json)
-                """
+                    """
+                    # swap position so it will be 0-1-2-3
+                    points[-2], points[-1] = points[-1], points[-2]
+                    result['session{}'.format (ses_id)][v] = points
 
                 for i, view in enumerate (VIEW) : 
                     mask_color = cv2.cvtColor (masks[view], cv2.COLOR_GRAY2BGR)
@@ -607,5 +631,8 @@ for ses_id in range (5, 6) :
         if (cv2.waitKey(1) & 0xFF == ord('q')) :
             break
 
-        ctr += 1
+        # ctr += 1
         print (ctr)
+with open ('result/4.json', 'w') as f_json : 
+    print ("Dumping result")
+    json.dump (result, f_json, indent=2, sort_keys=True)

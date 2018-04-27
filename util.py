@@ -82,7 +82,7 @@ class FrameIteratorLoader (object) :
 def process_morphological (fg_binary) :
     # morphological kernel
     kernel3 = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
-    kernel10 = cv2.getStructuringElement (cv2.MORPH_RECT, (20, 20))
+    kernel10 = cv2.getStructuringElement (cv2.MORPH_RECT, (10, 10))
 
     # noise removal
     result = cv2.morphologyEx(fg_binary, cv2.MORPH_OPEN, kernel3)
