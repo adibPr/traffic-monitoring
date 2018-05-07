@@ -1,4 +1,4 @@
 data/
 *.sw*
 *.old
-/test/result
+test/common_plane/result
