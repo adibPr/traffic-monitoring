@@ -13,7 +13,6 @@ sys.path.append (os.path.join (path_this, '..', '..'))
 from geometry import get_extreme_tan_point, Line, get_extreme_side_point, find_right_most_point
 from util import *
 from iterator import FrameIterator
-from background import BackgroundModel
 
 def draw_polylines (img, corner, color=(0,0,255)) : 
     img = img.copy ()
@@ -61,11 +60,9 @@ ses_id = 5
 vp = VP.get_session (ses_id)
 fi = FrameIteratorLoader.get_session (ses_id)
 
-M = {} # matrix homography
-prev_img = {} # prev 2 image for 3 frame differance
-bms = {}  # MoG models
-BG = {} # static image 
-
+M = {}
+ts_img = {}
+prev_img = {}
 for view in VIEW : 
     img = cv2.imread (img_path.format (ses_id, view), 1)
 
@@ -77,14 +74,8 @@ for view in VIEW :
     corner_wrap = np.float32 ([[0,300],[0,0], [1000,0], [1000, 300]])
     M[view] = cv2.getPerspectiveTransform (corner_gt, corner_wrap)
 
-    # background subtraction
-    bms[view] = BackgroundModel (fi[view], detectShadows=False)
-    bms[view].learn (tot_frame_init=2)
-
-    # static background load
-    path_sb = "/home/adib/My Git/traffic-monitoring/data/gt/2016-ITS-BrnoCompSpeed/dataset"
-    path_sb = os.path.join (path_sb, "session{}_{}/screen.png".format (ses_id, view))
-    BG[view] = cv2.imread (path_sb, 0)
+    # for initialization
+    ts_img[view] = None # np.zeros ((300, 1000, 3)) 
 
     # for 3 frame difference
     prev_img[view] = [None, None]
@@ -97,9 +88,9 @@ for view in VIEW :
         prev_img[view][i] = img 
 
 size = 5 
-for i in range (300) : 
+while True:
     frame = None
-    for view_idx, view in enumerate (VIEW) : 
+    for view in VIEW : 
         img_color = next (fi[view])
         img = cv2.cvtColor (img_color, cv2.COLOR_BGR2GRAY)
 
@@ -116,48 +107,38 @@ for i in range (300) :
         next_intersect_dilate = process_morphological (next_intersect)
         
         P2 = cv2.bitwise_and (prev_intersect_dilate, next_intersect_dilate)
-        P2 = cv2.bitwise_xor (P1, P2)
-        # """
-
+        # fg_3frame = cv2.bitwise_xor (P1, P2)
         """
-        # by MOG
-        fg = bms[view].apply (img_color)
-        P2 = process_morphological (fg)
-        # """
 
-        """
-        # by static difference background
-        P2 = cv2.absdiff (BG[view], img)
-        # """
-
-        dst = cv2.warpPerspective (P2, M[view], (1000,300))
-        dst = cv2.threshold (dst, 150, 255, cv2.THRESH_BINARY)[1]
+        dst = cv2.warpPerspective (img, M[view], (1000,300))
         
         # draw a middle line
         # cv2.line (dst, (700, 0), (700, 300), color=(255, 255, 0), thickness=10)
+        border_img = dst[:, 700:700+size]
 
-        # color convention
-        color = [0, 0, 0]
-        color[view_idx] = 255
+        # time spatial construction
+        if ts_img[view] is None : 
+            ts_img[view] = border_img
+        else : 
+            ts_img[view] = np.hstack ((ts_img[view], border_img))
 
-        # dst = cv2.cvtColor (dst, cv2.COLOR_GRAY2BGR)
-        # dst[np.where((dst==[255,255,255]).all(axis=2))] = color
+        if ts_img[view].shape[1] > 1000 : 
+            ts_img[view] = ts_img[view][:, size:]
+
+        # do canny detection to ts
+        edges = cv2.Canny (ts_img[view].astype (np.uint8), 50, 200)
+        disp = edges
+
 
         if frame is None : 
-            frame = dst
+            frame = disp 
         else : 
-            # frame = cv2.addWeighted (frame, 0.5, dst, 0.5, 0)
-            frame = cv2.bitwise_or (frame, dst)
+            frame = np.vstack ((frame, disp))
 
         prev_img[view][0] = prev_img[view][1]
         prev_img[view][1] = img
 
 
-    img_pers = cv2.warpPerspective (img_color, M[view], (1000, 300))
-    frame = cv2.cvtColor (frame, cv2.COLOR_GRAY2BGR)
-
-    frame = np.vstack ((frame, img_pers))
     cv2.imshow ('default', frame)
     if (cv2.waitKey(1) & 0xFF == ord('q')) :
         break
-

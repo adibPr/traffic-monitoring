@@ -88,12 +88,13 @@ for view in VIEW :
         prev_img[view][i] = img 
 
 size = 5 
-for i in range (300) : 
+while True:
     frame = None
     for view in VIEW : 
         img_color = next (fi[view])
         img = cv2.cvtColor (img_color, cv2.COLOR_BGR2GRAY)
 
+        """
         # by 3 frame difference
         prev_intersect = cv2.threshold (cv2.absdiff (prev_img[view][1], prev_img[view][0]), 25, 255, cv2.THRESH_BINARY)[1]
         next_intersect = cv2.threshold (cv2.absdiff (img, prev_img[view][1]), 25, 255, cv2.THRESH_BINARY)[1]
@@ -107,6 +108,7 @@ for i in range (300) :
         
         P2 = cv2.bitwise_and (prev_intersect_dilate, next_intersect_dilate)
         # fg_3frame = cv2.bitwise_xor (P1, P2)
+        """
 
         dst = cv2.warpPerspective (img_color, M[view], (1000,300))
         
@@ -132,7 +134,6 @@ for i in range (300) :
         prev_img[view][1] = img
 
 
-    print (frame.shape)
     cv2.imshow ('default', frame)
     if (cv2.waitKey(1) & 0xFF == ord('q')) :
         break
