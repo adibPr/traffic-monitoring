@@ -25,7 +25,6 @@ class BackgroundModel (object) :
             )
 
         for i in range (tot_frame_init) : 
-            print ('{:2d} %'.format (int (i/tot_frame_init * 100)), end='\r')
             img = next (self._iterator)
             self.bg_model.apply (img)
             sys.stdout.flush ()

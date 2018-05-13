@@ -2,3 +2,4 @@ data/
 *.sw*
 *.old
 test/common_plane/result
+test/fusion/result
