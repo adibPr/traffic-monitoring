@@ -6,7 +6,6 @@ import json
 
 import cv2
 import numpy as np
-from pprint import pprint
 
 path_this = os.path.abspath (os.path.dirname (__file__))
 sys.path.append (os.path.join (path_this, '..', '..'))
@@ -49,33 +48,13 @@ def get_corner_ground (vp1, vp2, points) :
     
     return corner
 
-def TSI_get_contours (frame_binary, min_area=200, min_width=70) :
-    contours_selected = []
-
-    im2, contours, hierarchy = cv2.findContours(
-            frame_binary, 
-            cv2.RETR_TREE, 
-            cv2.CHAIN_APPROX_SIMPLE
-        )
-
-    # select contour that greater than the specified $min_area and
-    # not part of other contour (specified by its hierarchy)
-    # additionally, its width must be greater than $min_width
-    for c_idx, c in enumerate (contours) :
-        (x,y, w, h) = cv2.boundingRect (c)
-        if cv2.contourArea(c) > min_area and hierarchy[0][c_idx][3] < 0 and \
-                h > min_width:
-            contours_selected.append (c)
-
-    return contours_selected
-
 VP = VPLoader ()
 
 VIEW = ("right", "center", "left")
 with open ("/home/adib/My Git/traffic-monitoring/data/sync_25fps/common_point/result.json", "r") as f_buf : 
     GT = json.load (f_buf)
 
-# cv2.namedWindow ('default', flags=cv2.WINDOW_NORMAL)
+cv2.namedWindow ('default', flags=cv2.WINDOW_NORMAL)
 img_path = '/home/adib/My Git/traffic-monitoring/data/gt/2016-ITS-BrnoCompSpeed/dataset/session{}_{}/screen.png'
 
 ses_id = 5 
@@ -84,13 +63,12 @@ fi = FrameIteratorLoader.get_session (ses_id)
 
 M = {} # matrix homography
 ts_img = {} # initalization of time spatial image
+epi_img = {} # initialization of epi image
 prev_img = {} # prev 2 image for 3 frame differance
 prev_tsi = {} # prev 2 image for 3 frame difference time spatial image
 bms = {} # background model MoG
 VDL_IDX = 100 # column index of VDL
 VDL_SIZE = 5  # size of VDL
-imgs_color = {} # for saving image color each view
-dsts_color = {}
 
 for view in VIEW : 
     img = cv2.imread (img_path.format (ses_id, view), 1)
@@ -109,6 +87,7 @@ for view in VIEW :
 
     # for initialization
     ts_img[view] = None
+    epi_img[view] = None
 
     # for 3 frame difference
     prev_img[view] = [None, None]
@@ -122,27 +101,30 @@ for view in VIEW :
 
     prev_tsi[view] = [None, None]
 
-ctr = 0
 while True:
-    ctr += 1
 
     frame = None
+    disp_center = None
+    disp_track = None
 
     for view in VIEW : 
         img_color = next (fi[view])
-        imgs_color[view] = img_color
         img = cv2.cvtColor (img_color, cv2.COLOR_BGR2GRAY)
 
-        # warp perspective
+        # for displyaing background result
+        # dst = cv2.warpPerspective (P2, M[view], (1000,300))
+        
         dst = cv2.warpPerspective (img, M[view], (1000, 300))
-        dst_color = cv2.warpPerspective (img_color, M[view], (1000, 300))
-        dsts_color[view] =  dst_color
+
+        if view == 'center' : 
+            disp_center = dst.copy ()
+            # display VDL
+            cv2.line (disp_center, (VDL_IDX, 0), (VDL_IDX, dst.shape[1]), color=(255, 255, 255), thickness=10)
+            # display tracking line
+            cv2.line (disp_center, (0, 75), (1000, 75), color=(255, 255, 255), thickness=10)
 
         # take only the LINE_COL column
-        border_img = dst_color[:, VDL_IDX:VDL_IDX+VDL_SIZE, :].copy ()
-
-        # display VDL
-        cv2.line (dst_color, (VDL_IDX, 0), (VDL_IDX, dst.shape[1]), color=(0, 255, 200), thickness=10)
+        border_img = dst[:, VDL_IDX:VDL_IDX+VDL_SIZE]
 
         # time spatial construction
         if ts_img[view] is None : 
@@ -152,7 +134,7 @@ while True:
 
         cur_disp = ts_img[view]
         if ts_img[view].shape[1] > 1000 : 
-            cur_disp = ts_img[view] = ts_img[view][:, :-VDL_SIZE, :]
+            ts_img[view] = ts_img[view][:, :-VDL_SIZE]
 
             if all ([_ is not None for _ in prev_tsi[view]]) :  # only when all frame is 1000 already
 
@@ -170,105 +152,40 @@ while True:
             prev_tsi[view][0] = prev_tsi[view][1]
             prev_tsi[view][1] = ts_img[view] 
 
+        # EPI construction
+        epi_part = np.transpose (dst[75:75+VDL_SIZE, :1000])
+        if epi_img[view] is None : 
+            epi_img[view] = epi_part
+        else : 
+            epi_img[view] = np.hstack ((epi_part, epi_img[view]))
+
+        if epi_img[view].shape[1] > 1000 : 
+            epi_img[view] = epi_img[view][:, :1000]
+        disp_track = epi_img[view]
+
         if frame is None : 
-            frame = dst_color #ts_img[view] 
+            frame = cur_disp
             intersection = cur_disp
 
         else : 
-            # frame = np.vstack ((frame, ts_img[view]))
-            frame = np.vstack ((frame, dst_color))
+            frame = np.vstack ((frame, cur_disp))
             intersection = cv2.bitwise_and (intersection, cur_disp)
 
         # prev_img[view][0] = prev_img[view][1]
         # prev_img[view][1] = img
 
     # start when everything is done
-    if intersection.shape[1] != 1000 : 
+    if frame.shape[1] != 1000 : 
         continue
 
+
     # add morphological process to intersection
-    intersection = process_morphological (intersection)
-
-    # i want draw bounding box over the intersection only
-    intersection = cv2.cvtColor (intersection, cv2.COLOR_BGR2GRAY) # TSI_get_contours need b/w image 
-    blobs = TSI_get_contours (intersection) # get blobs
-    intersection = cv2.cvtColor (intersection, cv2.COLOR_GRAY2BGR) # convert intersection into BGR
-    intersection = draw_bounding_box_contours (intersection, blobs) # draw bounding box
-
-    # get rectangular area based on VDL width
-    prev_x = 1000
-    selected = blobs[-1]
-    for b in blobs : 
-        # find blobs with the lowest x, the first come
-        (x,y, w, h) = cv2.boundingRect (b)
-        if x < prev_x : 
-            prev_x = x
-            w = int ((2/3 * VDL_SIZE) * w)
-            x  = 0
-            selected = (x,y, w, h)
-    
-    # draw this on frame
-    for i in range (3) : 
-        x = VDL_IDX + 600 
-        this_y = 300 * i + selected[1]
-        cv2.rectangle (frame, (x, this_y), (x+selected[2], this_y + selected[3]), color=(255, 130, 200), thickness=5)
+    intersection= process_morphological (intersection)
 
     # concat view
-    frame = np.vstack ((frame, intersection))
-
-    # put text
-    loc = (5, 30)
-    cv2.putText (frame, 'Frame - {}'.format (ctr), loc, cv2.FONT_HERSHEY_PLAIN, 3, (255, 200, 128), 2)
-
+    # frame = np.vstack ((frame, intersection))
+    frame = np.vstack ((disp_center, intersection, epi_img['center']))
     cv2.imshow ('default', frame)
     if (cv2.waitKey(1) & 0xFF == ord('q')) :
         break
-    """
-    print (ctr)
-    if ctr == 284 :  
-        bbox = {}
-        for view in VIEW : 
-            # first, draw ground truth
-            points = GT['session{}'.format (ses_id)][view]
-            corner = np.float32 (get_corner_ground (vp[view]['vp1'], vp[view]['vp2'], points))
-            img_color = draw_polylines (imgs_color[view], corner)
-
-            # get dst_color with rectangle
-            cv2.rectangle (
-                    dsts_color[view], 
-                    (VDL_IDX + 600, selected[1]), 
-                    (VDL_IDX + 600 + selected[2], selected[1] + selected[3]),
-                    color=(255, 130, 200), 
-                    thickness=5
-                )
-
-            box_ground = np.matrix ([
-                [VDL_IDX + 600, selected[1] + selected[3], 1], # (bottom, left)
-                [VDL_IDX + 600, selected[1], 1], # (top, left)
-                [VDL_IDX + 600 + selected[2], selected[1], 1], # (top, right)
-                [VDL_IDX + 600 + selected[2], selected[1] + selected[3], 1] # (bottom, right)
-            ]).transpose ()
-
-            # get inverse perspective
-            M_inv = cv2.getPerspectiveTransform (corner_wrap, corner)
-            
-            # draw on the real image
-            box_ground = M_inv.dot (box_ground).transpose () # get inverse location of box
-            box_ground /= box_ground[:, 2] # divide by homogoneous scale
-            box_ground = box_ground[:, :-1].astype ('int').tolist () # convert into index
-            bbox[view] = box_ground
-            
-            # draw on the real image
-            inverse_dst_color = cv2.warpPerspective (dsts_color[view], M_inv, (img_color.shape[1], img_color.shape[0]) )
-            inverse_img = cv2.add (img_color, inverse_dst_color)
-
-            # cv2.imwrite ('result/{}-{}.jpg'.format (view, ctr), inverse_img)
-
-        with open ('box_ground.json', 'w') as f_b : 
-            json.dump (bbox, f_b)
-
-        break
-    """
-
-
 
