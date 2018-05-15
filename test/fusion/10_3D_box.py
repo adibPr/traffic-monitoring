@@ -15,6 +15,7 @@ from geometry import get_extreme_tan_point, Line, get_extreme_side_point, find_r
 from util import *
 from iterator import FrameIterator
 from background import BackgroundModel
+import TSIUtil
 
 def draw_polylines (img, corner, color=(0,0,255), thickness=5) : 
     img = img.copy ()
@@ -194,12 +195,13 @@ while True:
 
                 middle_point = la.get_intersection (lb)
                 middle_point = tuple ([int (_) for _ in middle_point])
-                color = (255, 255, b_idx * 255)
+                color = (255, b_idx * 255, 255)
                 thickness = 2
 
-                fgs[view] = draw_polylines (fgs[view], b, color, thickness )
+                # fgs[view] = draw_polylines (fgs[view], b, color, thickness )
 
-                b = np.matrix (b)
+                # b = np.matrix (b)
+                bottom_polylines = b
 
                 # get blobs that contain this 
                 is_found = False
@@ -207,6 +209,12 @@ while True:
                     if is_contained (bl, middle_point) :
                         print ("Found middle")
                         is_found = True
+
+                        # get top polylines
+                        top_polylines = TSIUtil.get_top_polylines (b, bl)
+                        # print (top_polylines)
+
+                        """
                         max_cp_y = np.max (b[:, 1]) - 3 # small tradeoff
                         box_floor = []
                         (x,y,w,h) = cv2.boundingRect (bl)
@@ -219,8 +227,10 @@ while True:
                             cv2.line (fgs[view], tuple (cp), tuple (cp_h), color, thickness=thickness) 
 
                             box_floor.append (cp_h)
-
-                        fgs[view] = draw_polylines (fgs[view], box_floor, color, thickness)
+                        """
+                        # cv2.line (fgs[view], tuple (top_polylines[0]), tuple (top_polylines[1]), color, thickness=thickness) 
+                        # fgs[view] = draw_polylines (fgs[view], top_polylines, color, thickness)
+                        fgs[view] = TSIUtil.draw_3D_box (fgs[view], bottom_polylines, top_polylines, color, thickness=thickness)
                         break
 
 

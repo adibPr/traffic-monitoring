@@ -190,10 +190,13 @@ while True:
                 
 
             # img_color = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR)
-            inverse_img = draw_polylines (imgs_color[view], box_ground.tolist (), color=(0,255,0), thickness=2)
 
             # get blobs
             blobs = get_contours (fgs[view])
+
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
+            inverse_img = draw_polylines (fgs[view], box_ground.tolist (), color=(0,255,0), thickness=5)
+            cv2.imwrite ('result/fgs-{}.jpg'.format (view), inverse_img)
 
             # get the blobs that within box_ground
             is_found = False
@@ -212,11 +215,13 @@ while True:
                         cp_h = list (cp)
                         cp_h[1] -= abs (y - max_cp_y)
 
-                        cv2.line (inverse_img, tuple (cp), tuple (cp_h), (0, 255, 0), 2) 
+                        cv2.line (inverse_img, tuple (cp), tuple (cp_h), (0, 255, 0), 5) 
 
                         box_floor.append (cp_h)
 
-                    inverse_img = draw_polylines (inverse_img, box_floor, color=(0,255,0), thickness=2)
+                    cv2.imwrite ('result/fgs_w_tail-{}.jpg'.format (view), inverse_img)
+
+                    inverse_img = draw_polylines (inverse_img, box_floor, color=(0,255,0), thickness=5)
                     break
 
 

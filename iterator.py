@@ -58,6 +58,11 @@ class FrameIterator (object) :
 
         yield None
 
+    def skip (self, n=1) : 
+        for i in range (n) : 
+            print ('Skipping - {}'.format (i))
+            self.__next__ ()
+
 if __name__ == '__main__' :
     # fpath = './data/sample/session0_center.avi' # for video
     fpath = './data/sample/session0_center' # for image

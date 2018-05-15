@@ -78,8 +78,7 @@ class FrameIteratorLoader (object) :
         return fi
 
 
-
-def process_morphological (fg_binary) :
+def process_morphological (fg_binary, iterations=1) :
     # morphological kernel
     kernel3 = cv2.getStructuringElement(cv2.MORPH_CROSS,(3,3))
     kernel10 = cv2.getStructuringElement (cv2.MORPH_RECT, (10, 10))
@@ -88,7 +87,7 @@ def process_morphological (fg_binary) :
     result = cv2.morphologyEx(fg_binary, cv2.MORPH_OPEN, kernel3)
     result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, kernel3)
 
-    result = cv2.dilate (result, kernel10 , iterations=1)
+    result = cv2.dilate (result, kernel10 , iterations=iterations)
 
     return result
 
