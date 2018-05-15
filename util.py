@@ -88,7 +88,7 @@ def process_morphological (fg_binary) :
     result = cv2.morphologyEx(fg_binary, cv2.MORPH_OPEN, kernel3)
     result = cv2.morphologyEx(result, cv2.MORPH_CLOSE, kernel3)
 
-    result = cv2.dilate (result, kernel10 , iterations=2)
+    result = cv2.dilate (result, kernel10 , iterations=1)
 
     return result
 

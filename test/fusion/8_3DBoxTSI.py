@@ -16,7 +16,7 @@ from util import *
 from iterator import FrameIterator
 from background import BackgroundModel
 
-def draw_polylines (img, corner, color=(0,0,255)) : 
+def draw_polylines (img, corner, color=(0,0,255), thickness=5) : 
     img = img.copy ()
 
     cornerInt = []
@@ -26,7 +26,7 @@ def draw_polylines (img, corner, color=(0,0,255)) :
     corner = np.array (corner, np.int32)
     corner = corner.reshape ((-1, 1, 2))
 
-    cv2.polylines (img, [corner], True , color, thickness=5)
+    cv2.polylines (img, [corner], True , color, thickness)
     return img
 
 def get_corner_ground (vp1, vp2, points) : 
@@ -190,7 +190,7 @@ while True:
                 
 
             # img_color = cv2.cvtColor (fg, cv2.COLOR_GRAY2BGR)
-            inverse_img = draw_polylines (imgs_color[view], box_ground.tolist ())
+            inverse_img = draw_polylines (imgs_color[view], box_ground.tolist (), color=(0,255,0), thickness=2)
 
             # get blobs
             blobs = get_contours (fgs[view])
@@ -212,11 +212,11 @@ while True:
                         cp_h = list (cp)
                         cp_h[1] -= abs (y - max_cp_y)
 
-                        cv2.line (inverse_img, tuple (cp), tuple (cp_h), (255, 0, 0), 5) 
+                        cv2.line (inverse_img, tuple (cp), tuple (cp_h), (0, 255, 0), 2) 
 
                         box_floor.append (cp_h)
 
-                    inverse_img = draw_polylines (inverse_img, box_floor)
+                    inverse_img = draw_polylines (inverse_img, box_floor, color=(0,255,0), thickness=2)
                     break
 
 
