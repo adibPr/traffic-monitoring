@@ -73,7 +73,7 @@ class FrameIteratorLoader (object) :
     def get_session (ses_id) : 
         fi = {}
         for view in (("left", "right", "center")) : 
-            fi[view] = FrameIterator ('../../data/sync_25fps/session{}_{}'.format (ses_id, view))
+            fi[view] = FrameIterator (os.path.join (path_this, 'data/sync_25fps/session{}_{}'.format (ses_id, view)))
 
         return fi
 

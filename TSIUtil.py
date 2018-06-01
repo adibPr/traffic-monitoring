@@ -8,7 +8,7 @@ import json
 import cv2
 import numpy as np
 from scipy.spatial.distance import euclidean
-from geometry import Line
+from geometry import Line, get_extreme_tan_point
 
 def draw_polylines (img, corner, color=(0,0,255), thickness=5) : 
     img = img.copy ()
@@ -116,6 +116,11 @@ def get_top_polylines (bottom_polylines, blob) :
 
     return top_polylines
 
+# def get_top_polylines_VP (bottom_polylines, blob, vp1) :
+#     tan_point_left, tan_point_right = get_extreme_tan_point (blob, vp1)
+
+
+
 def draw_3D_box (frame, bottom_polylines, top_polylines, color=(255,0,0), thickness=3) : 
     frame = frame.copy ()
     frame = draw_polylines (frame, bottom_polylines, color, thickness )
@@ -156,7 +161,7 @@ class TSI (object) :
                 self, 
                 M, 
                 size=(1000, 300),
-                VDL_IDX=1, 
+                VDL_IDX=0, 
                 VDL_SIZE=5, 
                 VDL_SCALE=2/4,
                 strip=1000
@@ -168,15 +173,16 @@ class TSI (object) :
         self.VDL_SIZE = VDL_SIZE
         self.VDL_SCALE = VDL_SCALE
         self.tsi = None
+        self.TRACK_MAX = size[0] / VDL_SIZE
 
     def apply (self, image) : 
         if image.shape[0] != self.size[0] or image.shape[1] != self.size[1] : 
             dst = cv2.warpPerspective (image, self.M, self.size)
 
         if len (image.shape) == 3 : 
-            strip = dst[:, self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE, :].copy ()
+            strip = dst[:, self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE, :]
         else : 
-            strip = dst[:, self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE].copy ()
+            strip = dst[:, self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE]
 
         if self.tsi is None : 
             if len (image.shape) == 3 : 
@@ -203,3 +209,30 @@ class TSI (object) :
         w = int ((self.VDL_SCALE) * self.VDL_SIZE * w) #convert to actual length
         x = int (x * self.VDL_SCALE * self.VDL_SIZE) # convert x to actual length
         return (x,y,w,h)
+
+class EPI (TSI) : 
+
+    def apply (self, image) : 
+        if image.shape[0] != self.size[0] or image.shape[1] != self.size[1] : 
+            dst = cv2.warpPerspective (image, self.M, self.size)
+
+        if len (image.shape) == 3 : 
+            strip = dst[self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE,: , :]
+        else : 
+            strip = dst[self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE, :]
+
+        if self.tsi is None : 
+            if len (image.shape) == 3 : 
+                self.tsi = np.zeros ((self.size[1], self.size[0], 3)).astype ('uint8')
+            else : 
+                self.tsi = np.zeros ((self.size[1], self.size[0])).astype ('uint8')
+
+        self.tsi = np.vstack ((strip, self.tsi))
+
+        if len (image.shape) == 3: 
+            self.tsi = self.tsi[:self.size[1], :, :]
+        else : 
+            self.tsi = self.tsi[:self.size[1], :]
+
+        return self.tsi
+

@@ -84,7 +84,7 @@ for ses_id in range (7) :
     print ("Analyzing ses : {}".format (ses_id))
 
     fourcc = cv2.VideoWriter_fourcc(*'XVID')
-    out = cv2.VideoWriter('result/TSI_video/TSI/ses_{}.avi'.format (ses_id),fourcc, 25.0, (1000, 1230))
+    out = cv2.VideoWriter('result/TSI_video/TSI/PFI_ses_{}.avi'.format (ses_id),fourcc, 25.0, (1000, 1230))
 
     vp = VP.get_session (ses_id)
     fi = FrameIteratorLoader.get_session (ses_id)
@@ -93,6 +93,7 @@ for ses_id in range (7) :
     ts_img = {} # initalization of time spatial image
     tsi_object  = {}
     fdiff_tsi = {} # frame difference tsi image
+    fdiff_view = {}
     masks = {}
 
     for view in VIEW : 
@@ -119,11 +120,14 @@ for ses_id in range (7) :
             img_color = img.copy ()
             img = cv2.cvtColor (img, cv2.COLOR_BGR2GRAY)
 
+            dst = cv2.warpPerspective (img, M[view], (1000, 300))
+
             # save background
-            prev_img[i] = img 
+            prev_img[i] = dst
             prev_tsi[i] = tsi_object[view].apply (img)
 
         fdiff_tsi[view] = FrameDifference (*prev_tsi)
+        fdiff_view[view] = FrameDifference (*prev_img)
 
         mask_path = '../../data/gt/2016-ITS-BrnoCompSpeed/dataset/session{}_{}/video_mask.png'.format (ses_id, view)
         masks[view] = cv2.imread (mask_path, 0)
@@ -152,16 +156,18 @@ for ses_id in range (7) :
                 dst = cv2.warpPerspective (img, M[view], (1000, 300))
 
                 # apply tsi
-                tsi = tsi_object[view].apply (img)
-                tsi_fg = fdiff_tsi[view].apply (tsi, iterations=2)
+                # tsi = tsi_object[view].apply (img)
+                # tsi_fg = fdiff_tsi[view].apply (tsi, iterations=2)
+
+                view_fg = fdiff_view[view].apply (dst, iterations=2)
 
                 # time spatial construction
                 if disp_tsi is None : 
-                    disp_tsi = tsi 
-                    intersection = tsi_fg
+                    disp_tsi =  dst
+                    intersection = view_fg 
                 else : 
-                    disp_tsi = np.vstack ((tsi, disp_tsi))
-                    intersection = cv2.bitwise_and (intersection, tsi_fg)
+                    disp_tsi = np.vstack ((dst, disp_tsi))
+                    intersection = cv2.bitwise_and (intersection, view_fg)
 
 
             frame = disp_tsi
@@ -170,16 +176,17 @@ for ses_id in range (7) :
             intersection = process_morphological (intersection)
 
             # i want draw bounding box over the intersection only
-            blobs = TSI_get_contours (intersection) # get blobs
-            intersection = cv2.cvtColor (intersection, cv2.COLOR_GRAY2BGR) # convert intersection into BGR
+            # blobs = TSI_get_contours (intersection) # get blobs
             # intersection = draw_bounding_box_contours (intersection, blobs) # draw bounding box
+            blobs = get_contours (intersection)
+            intersection = cv2.cvtColor (intersection, cv2.COLOR_GRAY2BGR) # convert intersection into BGR
 
             # get bounding box that touch begin line
             for b in blobs : 
                 (x,y, w, h) = cv2.boundingRect (b)
                 center_y = (y + h) / 2
                 center_x = (x + w) / 2
-                if abs (center_x - 200) <= 1 : 
+                if abs (center_x - 200) <= 3 : 
                     cv2.rectangle (intersection, (x,y), (x+w, y+h), (0, 0, 255), 2)
                     tot_vehicle += 1
                 else : 
@@ -204,8 +211,6 @@ for ses_id in range (7) :
 
             # cv2.imshow ('default', frame)
             # if (cv2.waitKey(1) & 0xFF == ord('q')) :
-            #     out.release ()
-            #     print (tot_vehicle)
             #     break
 
         except (KeyboardInterrupt,StopIteration) as e : 
@@ -213,7 +218,7 @@ for ses_id in range (7) :
             for b in blobs : 
                 (x,y,w,h) = cv2.boundingRect (b)
                 center_x = (x+w) / 2
-                if center_x < 200 : 
+                if center_x < 500 : 
                     tot_vehicle += 1
 
             print ("Tot Vehicle : {}".format (tot_vehicle))
@@ -221,5 +226,5 @@ for ses_id in range (7) :
             out.release ()
 
             break
-with open ('result/TSI_video/result.json', 'w') as f_buff : 
+with open ('result/TSI_video/PFI_result.json', 'w') as f_buff : 
     json.dump (result, f_buff)
