@@ -4,3 +4,6 @@ data/
 test/common_plane/result
 test/fusion/result
 test/paper
+test/fusion/17_colorTSI/segmented
+test/fusion/16_MultiTSI/
+imgs/

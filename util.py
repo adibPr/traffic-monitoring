@@ -22,7 +22,7 @@ class VPLoader (object) :
             for view in (("left", "right", "center")) : 
                 path_vp = os.path.join (
                         path, 
-                        '2016-ITS-BrnoCompSpeed/results/session{}_{}/system_dubska_bmvc14.json'.format (ses_id, view)
+                        'vp/ses_{}-{}-vp.json'.format (ses_id, view)
                     )
 
                 # load vp
@@ -91,7 +91,7 @@ def process_morphological (fg_binary, iterations=1) :
 
     return result
 
-def get_contours (frame_binary, min_area=200, min_width=50) :
+def get_contours (frame_binary, min_area=200, min_width=50, min_height=50) :
     contours_selected = []
 
     im2, contours, hierarchy = cv2.findContours(
@@ -106,7 +106,7 @@ def get_contours (frame_binary, min_area=200, min_width=50) :
     for c_idx, c in enumerate (contours) :
         (x,y, w, h) = cv2.boundingRect (c)
         if cv2.contourArea(c) > min_area and hierarchy[0][c_idx][3] < 0 and\
-                w > min_width and h > min_width:
+                w > min_width and h > min_height:
             contours_selected.append (c)
 
     return contours_selected
@@ -121,7 +121,8 @@ def draw_bounding_box_contours (frame, contours) :
 if __name__ == '__main__' : 
     def test_VPLoader () : 
         VL = VPLoader ()
-        print (VL.get_session (2))
+        for i in range (7) : 
+            print (VL.get_session (i))
 
     def test_MaskLoader () : 
         cv2.namedWindow ('default', flags=cv2.WINDOW_NORMAL)
@@ -130,5 +131,5 @@ if __name__ == '__main__' :
 
         cv2.waitKey (0)
 
-    # test_VPLoader ()
-    test_MaskLoader ()
+    test_VPLoader ()
+    # test_MaskLoader ()

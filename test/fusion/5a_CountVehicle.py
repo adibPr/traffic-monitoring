@@ -100,6 +100,8 @@ for view in VIEW :
     corner_gt = np.float32 (corner)
     corner_wrap = np.float32 ([[0,300],[0,0], [1000,0], [1000, 300]])
     M[view] = cv2.getPerspectiveTransform (corner_gt, corner_wrap)
+    print (M[view].shape)
+    sys.exit ()
 
     # background subtraction
     bms[view] = BackgroundModel (fi[view], detectShadows=False)

@@ -160,11 +160,10 @@ class TSI (object) :
     def __init__ (
                 self, 
                 M, 
-                size=(1000, 300),
+                size=(1000, 300), # its size ofr warpPerspective, not the actual image size
                 VDL_IDX=0, 
                 VDL_SIZE=5, 
-                VDL_SCALE=2/4,
-                strip=1000
+                VDL_SCALE=2/4
             ) : 
 
         self.M = M
@@ -176,22 +175,29 @@ class TSI (object) :
         self.TRACK_MAX = size[0] / VDL_SIZE
 
     def apply (self, image) : 
-        if image.shape[0] != self.size[0] or image.shape[1] != self.size[1] : 
+        # convert if not already converted
+        if image.shape[1] != self.size[0] or image.shape[0] != self.size[1] : 
             dst = cv2.warpPerspective (image, self.M, self.size)
+        else : 
+            dst = image
 
+        # get strip
         if len (image.shape) == 3 : 
             strip = dst[:, self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE, :]
         else : 
             strip = dst[:, self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE]
 
+        # create initial zeros entry
         if self.tsi is None : 
             if len (image.shape) == 3 : 
                 self.tsi = np.zeros ((self.size[1], self.size[0], 3)).astype ('uint8')
             else : 
                 self.tsi = np.zeros ((self.size[1], self.size[0])).astype ('uint8')
 
+        # appending
         self.tsi = np.hstack ((strip, self.tsi))
 
+        # pruning
         if len (image.shape) == 3: 
             self.tsi = self.tsi[:, :self.size[0], :]
         else : 
@@ -213,22 +219,29 @@ class TSI (object) :
 class EPI (TSI) : 
 
     def apply (self, image) : 
-        if image.shape[0] != self.size[0] or image.shape[1] != self.size[1] : 
+        # convert if not already converted
+        if image.shape[1] != self.size[0] or image.shape[0] != self.size[1] : 
             dst = cv2.warpPerspective (image, self.M, self.size)
+        else : 
+            dst = image
 
+        # get strip
         if len (image.shape) == 3 : 
             strip = dst[self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE,: , :]
         else : 
             strip = dst[self.VDL_IDX:self.VDL_IDX+self.VDL_SIZE, :]
 
+        # create initial zeros entry
         if self.tsi is None : 
             if len (image.shape) == 3 : 
                 self.tsi = np.zeros ((self.size[1], self.size[0], 3)).astype ('uint8')
             else : 
                 self.tsi = np.zeros ((self.size[1], self.size[0])).astype ('uint8')
 
+        # appending
         self.tsi = np.vstack ((strip, self.tsi))
 
+        # pruning
         if len (image.shape) == 3: 
             self.tsi = self.tsi[:self.size[1], :, :]
         else : 
