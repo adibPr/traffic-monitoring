@@ -13,6 +13,7 @@ import colorsys
 
 import cv2
 import numpy as np
+from matplotlib import pyplot as plt
 
 path_this = os.path.abspath (os.path.dirname (__file__))
 sys.path.append (os.path.join (path_this, '..', '..', '..'))
@@ -83,6 +84,12 @@ class ColorBasedPFM (object) :
         self.WITH_COLOR = kwargs.get ('w_color', False)
         self.load_constant ()
 
+
+    """
+    ============================
+    Object Detection Functionalitiy
+    ============================
+    """
     def load_constant (self) : 
         self.GT_LIST_ID = [0,1,2,4,5,6,8,13,14,15,16,17,18,19,21,24,25,26,27,28,29,31,32,34,35,36,37,38,40,41,42,43,44,45,46,47,51]
         with open ("/home/adib/My Git/traffic-monitoring/data/sync_25fps/common_point/result.json", "r") as f_buf : 
@@ -151,7 +158,7 @@ class ColorBasedPFM (object) :
 
             logger.info (' -- Extract background')
             fg = self.fdiff_view[view].apply (dst)
-            fg = process_morphological (fg, iterations=5)
+            fg = process_morphological (fg, iterations=3)
 
             fgs[view] =  fg
 
@@ -217,23 +224,24 @@ class ColorBasedPFM (object) :
             img = cv2.cvtColor (img, cv2.COLOR_BGR2GRAY)
         return img
 
-    def split_blob (self, blob, thres_compact=0.9) : 
 
-        # get surrounding of poly and hull
-        epsilon = 0.01*cv2.arcLength(blob,True)
-        poly = cv2.approxPolyDP(blob,epsilon,True)
-        hull = cv2.convexHull(blob)
+    """
+    ============================
+    Split Contour Functionality
+    ============================
+    """
+    def split_blob (self, poly, hull) : 
+        mask_poly, mask_hull = self.create_convex_mask (poly, hull)
+        max_cnt = self.get_largest_residu_contour (mask_poly, mask_hull)
+        cutting_point = self.get_cutting_point (hull, max_cnt)
+        contours = self.split_blob_from_cutting_point (mask_poly, cutting_point)
 
-        # test weather it should be divided or not
-        area_poly = cv2.contourArea (poly)
-        area_hull = cv2.contourArea (hull)
-        ratio_area = area_poly / area_hull
-        # compactness is big, no need to split
-        # if ratio_area >= thres_compact : 
-        #     return None 
+        return contours 
 
+    def create_convex_mask (self, poly, hull) : 
         # create mask poly
         color = [255] * len (self.shape)
+
         mask_poly = np.zeros (self.shape).astype ('uint8')
         cv2.fillPoly (mask_poly, [poly], tuple (color))
         mask_poly_color = mask_poly
@@ -249,6 +257,9 @@ class ColorBasedPFM (object) :
             mask_hull = cv2.cvtColor (mask_hull, cv2.COLOR_BGR2GRAY)
         mask_hull = cv2.threshold (mask_hull, 25, 255, cv2.THRESH_BINARY)[1]
 
+        return mask_poly, mask_hull
+
+    def get_largest_residu_contour (self, mask_poly, mask_hull) : 
         # blob diff 
         blob_diff = cv2.bitwise_xor (mask_hull, mask_poly)
         im2, contours, hierarchy = cv2.findContours(
@@ -266,12 +277,10 @@ class ColorBasedPFM (object) :
                 max_area = area
                 max_cnt = cnt
 
-        mask_diff = np.zeros (self.shape).astype ('uint8')
-        cv2.fillPoly (mask_diff, [max_cnt], (120, 120, 120))
-        max_cnt = cv2.convexHull (max_cnt)
+        return max_cnt
 
+    def get_cutting_point (self, hull, max_cnt) : 
         cutting_point = None
-        cutting_point2 = None
         most_inner_dist = None
 
         M = cv2.moments (hull)
@@ -284,30 +293,18 @@ class ColorBasedPFM (object) :
 
             ext_dist = None 
             ext_point = None
-            # for p in hull : 
-            #     p = np.array (p[0])
-
-            #     # dist =  np.linalg.norm (mc-p)
-            #     dist = ((mc - p) ** 2).sum ()
-            #     if ext_dist is None or dist < ext_dist :
-            #         ext_dist = dist
-            #         ext_point = p
 
             dist = np.linalg.norm (mc-centroid)
 
             if cutting_point is None or dist < most_inner_dist : 
                 cutting_point = mc
-                # cutting_point2 = ext_point
                 most_inner_dist = dist 
 
-        # cv2.line (mask_diff, tuple (cutting_point), tuple (cutting_point2), (255, 255, 0), 10)
-        # cv2.circle (mask_diff, tuple (cutting_point),4, (255, 255, 0), 10)
-        # cv2.circle (mask_diff, (cx,cy),4, (255, 0, 0), 10)
+        return cutting_point
 
-        mask_line = np.zeros (self.shape).astype ('uint8')
-
+    def split_blob_from_cutting_point (self, mask_poly, cutting_point) : 
         # split horizontally
-        up, bot = mask_poly[:cutting_point[1], :], mask_poly[cutting_point[1]:, :]
+        up, bot = mask_poly[:cutting_point[1], :], mask_poly[cutting_point[1]+4:, :]
         im2, up, hierarchy = cv2.findContours(
                 up, 
                 cv2.RETR_TREE, 
@@ -318,12 +315,15 @@ class ColorBasedPFM (object) :
                 cv2.RETR_TREE, 
                 cv2.CHAIN_APPROX_SIMPLE
             )
-        up_area = max ([cv2.contourArea (c) for c in up])
-        bot_area = max ([cv2.contourArea (c) for c in bot])
-        horizontal_diff = abs (up_area - bot_area)
+        up_area = max ([cv2.contourArea (c) for c in up] + [0]) # add [0] so its not empty
+        bot_area = max ([cv2.contourArea (c) for c in bot] + [0])
+        if up_area and bot_area : 
+            horizontal_diff = abs (up_area - bot_area)
+        else : 
+            horizontal_diff = sys.maxsize
 
         # split vertically
-        left, right = mask_poly[:, :cutting_point[0]], mask_poly[:, cutting_point[0]:]
+        left, right = mask_poly[:, :cutting_point[0]], mask_poly[:, cutting_point[0]+4:]
         im2, left, hierarchy = cv2.findContours(
                 left, 
                 cv2.RETR_TREE, 
@@ -335,28 +335,167 @@ class ColorBasedPFM (object) :
                 cv2.CHAIN_APPROX_SIMPLE
             )
 
-        left_area = max ([cv2.contourArea (c) for c in left])
-        right_area = max ([cv2.contourArea (c) for c in right])
-        vertical_diff = abs (left_area - right_area)
+        left_area = max ([cv2.contourArea (c) for c in left] + [0])
+        right_area = max ([cv2.contourArea (c) for c in right] + [0])
+        if left_area and right_area : 
+            vertical_diff = abs (left_area - right_area)
+        else : 
+            vertical_diff = sys.maxsize 
 
         if horizontal_diff < vertical_diff : 
-            p1 = (0, cutting_point[1])
-            p2 = (mask_poly.shape[1], cutting_point[1])
-            cv2.line (mask_poly, tuple (p1), tuple (p2), (0, 0, 0), 3)
-            print ("Should split horizontally")
+            # p1 = (0, cutting_point[1])
+            # p2 = (mask_poly.shape[1], cutting_point[1])
+            for b_idx, b in enumerate (bot) : 
+                for p_idx, p in enumerate (b) : 
+                    bot[b_idx][p_idx][0][1] = bot[b_idx][p_idx][0][1] + cutting_point[1]+4
+                
+            up.extend (bot)
+            res = up
         else : 
-            p1 = (cutting_point[0], 0)
-            p2 = (cutting_point[0], mask_poly.shape[0])
-            cv2.line (mask_poly, tuple (p1), tuple (p2), (0, 0, 0), 3)
-            print ("Should split vertically")
+            # p1 = (cutting_point[0], 0)
+            # p2 = (cutting_point[0], mask_poly.shape[0])
+            for l_idx, l in enumerate (right) : 
+                for p_idx, p in enumerate (l) : 
+                    right[l_idx][p_idx][0][0] = right[l_idx][p_idx][0][0] + cutting_point[0]+4
+            right.extend (left)
+            res = right
 
-        if self.WITH_COLOR : 
-            mask_line = cv2.cvtColor (mask_line, cv2.COLOR_BGR2GRAY)
-        # mask_poly = cv2.bitwise_xor (mask_poly, mask_line)
-        mask_poly = cv2.cvtColor (mask_poly, cv2.COLOR_GRAY2BGR)
+        clean_res = [ r for r in res if cv2.contourArea (r) >= 10 ]
+        return  clean_res 
 
-        return  mask_poly
+    def get_clean_blobs (self, blobs) :
+        dirty_blobs = blobs
+        clean_blobs = []
+        while dirty_blobs : 
+            need2split_blobs = []
 
+            for b in dirty_blobs : 
+
+                # get surrounding of poly and hull
+                epsilon = 0.01*cv2.arcLength(b,True)
+                poly = cv2.approxPolyDP(b,epsilon,True)
+                hull = cv2.convexHull(b)
+
+                # test weather it should be divided or not
+                area_poly = cv2.contourArea (poly)
+                area_hull = cv2.contourArea (hull)
+                try :
+                    ratio_area = area_poly / area_hull
+                except ZeroDivisionError as e : 
+                    continue
+
+                if ratio_area >= 0.9 : 
+                    # no need to divide
+                    # cv2.fillPoly (mask_combine[view], [poly],  (125, 125, 125))
+                    # cv2.drawContours (mask_combine[view], [hull], 0, (125, 125, 255), 2)
+                    clean_blobs.append (b)
+                    continue
+
+                # cv2.drawContours (mask_combine[view], [hull], 0, (255, 0, 255), 2)
+                sub_b = self.split_blob (poly, hull)
+                if sub_b : 
+                    for bb in sub_b : 
+                        need2split_blobs.append (bb)
+                else : 
+                    clean_blobs.append (b)
+
+            dirty_blobs = need2split_blobs
+            # print (len (clean_blobs))
+
+            # max_cnt = CBP.split_blob (b)
+            # mask_combine[view] += max_cnt
+
+        return clean_blobs
+
+    def get_clean_blobs_once (self, blobs) : 
+        clean_blobs = []
+        for b in blobs : 
+            # get surrounding of poly and hull
+            epsilon = 0.01*cv2.arcLength(b,True)
+            poly = cv2.approxPolyDP(b,epsilon,True)
+            hull = cv2.convexHull(b)
+
+            # test weather it should be divided or not
+            area_poly = cv2.contourArea (poly)
+            area_hull = cv2.contourArea (hull)
+            try :
+                ratio_area = area_poly / area_hull
+            except ZeroDivisionError as e : 
+                continue
+
+            if ratio_area >= 0.8 : 
+                # no need to divide
+                # cv2.fillPoly (mask_combine[view], [poly],  (125, 125, 125))
+                # cv2.drawContours (mask_combine[view], [hull], 0, (125, 125, 255), 2)
+                clean_blobs.append (b)
+                continue
+
+            # cv2.drawContours (mask_combine[view], [hull], 0, (255, 0, 255), 2)
+            sub_b = self.split_blob (poly, hull)
+            if sub_b : 
+                for bb in sub_b : 
+                    clean_blobs.append (bb)
+            else : 
+                clean_blobs.append (b)
+
+        return clean_blobs
+
+    """
+    ============================
+    Feature Extraction Functionality
+    ============================
+    """
+    @staticmethod
+    def extract_feature_from_masks (img, contour, bins=20) : 
+        # first extract region blob from image
+        img = cv2.cvtColor (img, cv2.COLOR_BGR2GRAY)
+        mask = np.zeros (img.shape[:2], np.uint8)
+        cv2.fillPoly (mask, [contour], (255, 255, 255) )
+
+        # hist = cv2.calcHist ([img], [0,1,2], mask, [bins] * 3, [0, 256] * 3)
+        hist = cv2.calcHist ([img], [0], mask, [bins], [0, 256])
+        hist = hist.flatten () # flatten
+        return hist
+
+    @staticmethod
+    def cluster_histogram (histogram, centroids, radius=70, thres=0.8) : 
+        data2cluster = defaultdict (lambda : None)
+        cluster2data = defaultdict (lambda : set ())
+
+        for h_idx, h in enumerate (histogram) : 
+            if data2cluster[h_idx] is None : 
+                data2cluster[h_idx] = h_idx
+                cluster2data[h_idx] |= set ([h_idx])
+
+            for i_idx in range (h_idx+1, len (histogram)) : 
+                i = histogram[i_idx]
+                # check distance
+                centroid_distance = np.linalg.norm (centroids[h_idx] - centroids[i_idx])
+
+                if centroid_distance >= radius : 
+                    continue
+
+                # check for histogram similarity
+                score = cv2.compareHist(h, i, cv2.HISTCMP_CORREL)
+
+                if score >= thres : 
+                    # merging
+                    if data2cluster[i_idx] is None : 
+                        data2cluster[i_idx] = data2cluster[h_idx]
+                        cluster2data[h_idx] |= set ([i_idx])
+
+                    else : 
+                        for member in cluster2data[i_idx] :  
+                            data2cluster[member] = data2cluster[h_idx]
+                        cluster2data.pop (i_idx, None)
+
+        return cluster2data
+
+    """
+    ============================
+    Misc Utility
+    ============================
+    """
     @staticmethod
     def iterator_range (path, start, end) : 
         """
@@ -391,7 +530,7 @@ class ColorBasedPFM (object) :
         Based on https://stackoverflow.com/a/40826140
         get a new fg based on mask binary
         """
-        if len (fg.shape) == 3 : 
+        if len (fg.shape) == 3 and len (mask.shape) != 3 : 
             mask_color = cv2.cvtColor (mask, cv2.COLOR_GRAY2BGR) # convert first into BGR
         else : 
             mask_color = mask
@@ -508,8 +647,6 @@ class ColorBasedPFM (object) :
 
         return ground_point
 
-
-
 class MultiTSIPFM (ColorBasedPFM) : 
 
     def __init__ (self, **kwargs) : 
@@ -586,7 +723,7 @@ class MultiTSIPFM (ColorBasedPFM) :
 
             logger.info (' -- Extract background')
             fg = self.fdiff_view[view].apply (dst)
-            fg = process_morphological (fg, iterations=3)
+            fg = process_morphological (fg, iterations=1)
 
             fgs[view] =  fg
 
@@ -684,7 +821,7 @@ class CommonGroundPFM (ColorBasedPFM) :
         fgs['and'] = self.intersection (fgs.values ())
         return imgs, fgs
 
-def main () : 
+def main_1 () : 
     CBP = MultiTSIPFM (w_color=True)
     # CBP = ColorBasedPFM (w_color=False)
 
@@ -709,8 +846,12 @@ def main () :
                 break
 
         tot_blobs = {}
+        clean_blobs_all = {}
         mask_combine = {}
-        for view in fgs.keys () :
+        mask_combine['and'] = None
+
+        for view in VIEW :
+
             blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
             tot_blobs[view] = len (blobs)
 
@@ -722,6 +863,34 @@ def main () :
             else : 
                 accuracy[view] += 0
 
+
+            logger.info ("Drawing {}".format (view))
+            # convert into BGR so we can draw it
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
+            mask_combine[view] = np.zeros_like (fgs[view])
+
+            clean_blobs = CBP.get_clean_blobs (blobs)
+            clean_blobs_all[view] = clean_blobs
+
+            random_color = get_colors (len (clean_blobs))
+            for b_idx, b in enumerate (clean_blobs) : 
+                b_hull = cv2.convexHull (b)
+                # cv2.drawContours (mask_combine[view], [b_hull], 0, random_color[b_idx], 2)
+                cv2.fillPoly (mask_combine[view], [b_hull], (255,255,255))
+                # cv2.fillPoly (mask_combine['and'], [b_hull], 0, (85,85,85), 2)
+
+            if mask_combine['and'] is None : 
+                mask_combine['and'] = mask_combine[view]
+            else : 
+                mask_combine['and'] = cv2.bitwise_and (mask_combine['and'], mask_combine[view])
+
+            # mask_combine[view] = CBP.get_blobs_from_image (dsts[view], mask_combine[view])
+
+            # for b_idx, b in enumerate (clean_blobs) : 
+            #     b_hull = cv2.convexHull (b)
+            #     cv2.drawContours (mask_combine[view], [b_hull], 0, random_color[b_idx], 2)
+            #     # cv2.fillPoly (mask_combine[view], [b_hull], (255,255,255))
+
             # extract blobs
             # logger.info ("Get contours for {}".format (view))
             # dsts[view] = CBP.get_blobs_from_image (dsts[view], fgs[view])
@@ -729,25 +898,6 @@ def main () :
             #     dsts[view] = cv2.medianBlur (dsts[view], 5)
             # dsts[view] = CBP.color_quantization (dsts[view], K=5)
             # dsts[view] = CBP.apply_sobel (dsts[view])
-
-            logger.info ("Drawing {}".format (view))
-            # convert into BGR so we can draw it
-            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
-            mask_combine[view] = np.zeros_like (fgs[view])
-            for b in blobs : 
-                corner = CBP.get_border_blobs (b)
-                tan_bot = corner[0][1]
-                tan_top = corner[1][1]
-
-                corner = np.array (corner, np.int32)
-                corner = corner.reshape ((-1, 1, 2))
-
-                max_cnt = CBP.split_blob (b)
-                # if max_cnt is None : 
-                #     max_cnt = np.zeros_like (fgs[view])
-                #     # max_cnt = cv2.cvtColor (max_cnt, cv2.COLOR_BGR2GRAY)
-                # cv2.fillPoly (mask_combine[view], max_cnt, (120, 120, 120))
-                mask_combine[view] += max_cnt
 
             # draw bounding box
             # fgs[view] = draw_bounding_box_contours (fgs[view], blobs) 
@@ -759,30 +909,71 @@ def main () :
 
         # fgs['and'] = cv2.cvtColor (fgs['and'], cv2.COLOR_GRAY2BGR)
         # fgs.pop ('and', None)
-        fgs = np.hstack (fgs.values ())
+        # fgs = np.hstack (fgs.values ())
 
-        # dsts = np.hstack (dsts.values ())
-        # dsts = CBP.color_quantization (dsts, K=6)
+        if len (mask_combine['and'].shape) == 3 : 
+            mask_and = cv2.cvtColor (mask_combine['and'], cv2.COLOR_BGR2GRAY)
+        else : 
+            mask_and = mask_combine['and']
+        mask_and = cv2.threshold (mask_and, 25, 255, cv2.THRESH_BINARY)[1]
 
-        # imgs = np.hstack (dsts.values ())
+        im2, blob_combine, hierarchy = cv2.findContours(
+                mask_and, 
+                cv2.RETR_TREE, 
+                cv2.CHAIN_APPROX_SIMPLE
+            )
 
-        # masks = np.hstack (CBP.masks.values ())
+        features = []
+        centroids = []
+        thres = 70
+        for b_idx, blob in enumerate (blob_combine) : 
+            fhist_combine = None
+            for view in (['right']) : 
+                fhist = CBP.extract_feature_from_masks (dsts[view], blob)
+                if fhist_combine is None : 
+                    fhist_combine = fhist
+                else : 
+                    fhist_combine = np.hstack ((fhist_combine, fhist))
 
-        mask_combine = np.hstack (mask_combine.values ())
+            features.append (fhist_combine)
+
+            M = cv2.moments (blob)
+            try : 
+                cx = int (M['m10'] / M['m00'])
+                cy = int (M['m01'] / M['m00'])
+            except ZeroDivisionError : 
+                cx = -1
+                cy = -1
+            centroid = np.array ((cx, cy))
+            centroids.append (centroid)
+
+
+        cluster = CBP.cluster_histogram (features, centroids)
+        colors = get_colors (len (cluster.keys ()))
+        mask_combine['cluster'] = np.zeros_like (dsts[view])
+        for cl_idx,  cl in enumerate (cluster.keys ()) : 
+            this_color = colors[cl_idx]
+            for blob_idx in cluster[cl] : 
+                cv2.fillPoly (mask_combine['cluster'], [blob_combine[blob_idx]], this_color)
+
+        # mask_combine['rest'] = CBP.get_blobs_from_image (dsts['center'], mask_combine['and'])
+        # mask_combine['real'] = dsts['center']
+        # mask_combine = np.hstack ((mask_combine[k] for k in ('real', 'rest', 'and', 'left', 'center', 'right')))
+        # mask_combine = np.vstack ((mask_combine, dsts))
 
         path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'imgs', str (data_id))
         if not os.path.isdir (path_to_save) : 
             os.mkdir (path_to_save)
 
-        exp_name = 'poly-split-point'
-        # cv2.imwrite (os.path.join (path_to_save, '{}.jpg'.format (exp_name)), mask_combine )
-        # exp_name = 'tsi'
-        # cv2.imwrite (os.path.join (path_to_save, '{}.jpg'.format (exp_name)), imgs)
+        exp_name = 'tsi_clustering'
+        cv2.imwrite (os.path.join (path_to_save, '{}.jpg'.format (exp_name)), mask_combine['cluster'])
+        # exp_name = 'tsi_default'
+        # cv2.imwrite (os.path.join (path_to_save, '{}.jpg'.format (exp_name)), dsts)
 
-        # csv_out.writerow (row)
-        # continue
+        csv_out.writerow (row)
+        continue
         while True : 
-            cv2.imshow ('default', mask_combine)
+            cv2.imshow ('default', mask_combine['cluster'])
 
             if (cv2.waitKey(1) & 0xFF == ord('q')) :
                 sys.exit ()
@@ -801,5 +992,89 @@ def main () :
         print ('{} - {:.2F}'.format (key, row[key]))
     # csv_out.writerow (row)
 
+def draw_blobs (img, blobs) : 
+    random_color = get_colors (2)
+    for b_idx, b in enumerate (blobs) : 
+        hull = cv2.convexHull (b)
+        epsilon = 0.01*cv2.arcLength(b,True)
+        poly = cv2.approxPolyDP(b,epsilon,True)
+
+        cv2.fillPoly (img, [hull], (125, 125, 125))
+        cv2.fillPoly (img, [poly], (255, 255, 255))
+        cv2.drawContours (img, [poly], 0, (0, 0, 255), 2)
+
+    return img
+
+def main_2 () : 
+
+    TOT_LANES = [3, 2, 2, None, 2, 2, 3]
+    # CBP = ColorBasedPFM (w_color=True)
+    CBP = MultiTSIPFM (w_color=True)
+
+    csv_out = csv.DictWriter (open ('result.csv', 'wb'), ('data_id', 'left', 'center', 'right', 'and'))
+    csv_out.writeheader ()
+
+    accuracy = defaultdict (lambda : 0) 
+    for data_id in CBP.GT_LIST_ID[:] : 
+
+        row = {}
+        row['data_id'] = data_id
+
+        CBP.set_scene (data_id)
+        gt = [ ent for ent in CBP.GT_ONE_FRAME if int (ent['data_id'].split ('-')[0]) == data_id ][0]
+        ses_id = int (gt['data_id'].split ('-')[1])
+
+        # skip to the end only
+        imgs = {}
+        while True : 
+            try :
+                imgs, dsts, fgs = CBP.process ()
+            except StopIteration as e : 
+                break
+
+        mask_combine = {}
+        for view in fgs.keys () :
+            mask_combine[view] = np.zeros_like (dsts.get (view, dsts['center']))
+
+            # divide by lane
+            if TOT_LANES[ses_id] == 3 : 
+                fgs[view][95:105, :] = 0
+                fgs[view][185:205, :] = 0
+            else : 
+                fgs[view][145:155, :] = 0
+
+            blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
+            # blobs = CBP.get_clean_blobs_once (blobs)
+            mask_combine[view] = draw_blobs (mask_combine[view], blobs)
+            row[view] = len (blobs)
+
+            # calculate accuracy
+            if int (gt['GT']) == len (blobs) : 
+                accuracy[view] += 1
+            else : 
+                accuracy[view] += 0
+
+        csv_out.writerow (row)
+        continue
+        while True : 
+            cv2.imshow ('default', np.hstack (mask_combine.values ()))
+
+            if (cv2.waitKey(1) & 0xFF == ord('q')) :
+                sys.exit ()
+            elif (cv2.waitKey (1) >= 0) : 
+                break
+
+    # write accuracy in the end
+    row = {'data_id' : 'Total True'}
+    for key in accuracy : 
+        row[key] = accuracy[key]
+    csv_out.writerow (row)
+    row = {'data_id' : 'Accuracy'}
+    print ('Accuracy : ')
+    for key in accuracy : 
+        row[key] = accuracy[key] / len (CBP.GT_LIST_ID)
+        print ('{} - {:.2F}'.format (key, row[key]))
+    csv_out.writerow (row)
+
 if __name__ == '__main__' : 
-    main ()
+    main_2 ()
