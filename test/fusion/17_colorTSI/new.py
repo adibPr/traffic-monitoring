@@ -144,7 +144,7 @@ class ColorBasedPFM (object) :
             self.fdiff_view[view] = self.init_MoG (self.fi[view], self.M[view])
             # self.fdiff_view[view] = self.init_fdiff (self.fi[view], self.M[view])
 
-    def process (self, imgs=None) :
+    def process (self, imgs=None, iterations=1) :
         if imgs is None : 
             imgs = self.next_frame ()
         fgs = {}
@@ -158,7 +158,7 @@ class ColorBasedPFM (object) :
 
             logger.info (' -- Extract background')
             fg = self.fdiff_view[view].apply (dst)
-            fg = process_morphological (fg, iterations=3)
+            fg = process_morphological (fg, iterations)
 
             fgs[view] =  fg
 
@@ -278,6 +278,17 @@ class ColorBasedPFM (object) :
                 max_cnt = cnt
 
         return max_cnt
+
+    def get_residu_contour (self, mask_poly, mask_hull) : 
+        # blob diff 
+        blob_diff = cv2.bitwise_xor (mask_hull, mask_poly)
+        im2, contours, hierarchy = cv2.findContours(
+                blob_diff, 
+                cv2.RETR_TREE, 
+                cv2.CHAIN_APPROX_SIMPLE
+            )
+
+        return contours
 
     def get_cutting_point (self, hull, max_cnt) : 
         cutting_point = None
@@ -439,6 +450,63 @@ class ColorBasedPFM (object) :
                 clean_blobs.append (b)
 
         return clean_blobs
+
+    def split_vertical (self, blob, tot_lanes) : 
+        (x,y,w,h) = cv2.boundingRect (blob)
+        if tot_lanes == 2 : 
+            split_idx = 150 
+        else : 
+            if y <= 100 <= h :
+                split_idx = 100
+            else : 
+                split_idx = 200
+
+        # generate blob
+        shape = list (self.shape)
+        shape.append (3)
+        tmp = np.zeros (shape[:3]).astype ('uint8')
+        cv2.fillPoly (tmp, [blob], (255, 255, 255))
+        # grayscale
+        tmp = cv2.cvtColor (tmp, cv2.COLOR_BGR2GRAY)
+        # split figuratively
+        tmp[split_idx-3:split_idx+3, :] = 0
+        # get contour
+        blobs = TSIUtil.get_contours (tmp)
+        return blobs
+
+    def split_horizontal (self, blobs) : 
+        # first find the largest area of
+        return blobs
+
+
+    @staticmethod
+    def is_horizontal_splittable (blob, largest_contour) : 
+        (x,y,w,h) = cv2.boundingRect (blob)
+        (xx, yy, ww, hh) = cv2.boundingRect (largest_contour)
+        M = cv2.moments(largest_contour)
+        try : 
+            cx = int(M['m10']/M['m00'])
+            cy = int(M['m01']/M['m00'])
+        except ZeroDivisionError as e : 
+            return False
+        if x+0.3*w <= cx <= x+0.7*w and yy+hh >= y+(h/2) : 
+            return True
+        else  : 
+            return False
+
+    @staticmethod
+    def find_tip_point (blob) : 
+        min_y = None
+        min_score = None
+        for c in blob : 
+            c = c[0]
+
+            if min_score is None or c[1] < min_score : 
+                min_score = min_y
+                min_y = c
+
+        return min_y
+
 
     """
     ============================
@@ -708,7 +776,7 @@ class MultiTSIPFM (ColorBasedPFM) :
 
         return fdiff_view
 
-    def process (self, imgs=None) :
+    def process (self, imgs=None, iterations=1) :
         if imgs is None : 
             imgs = self.next_frame ()
         fgs = {}
@@ -822,8 +890,8 @@ class CommonGroundPFM (ColorBasedPFM) :
         return imgs, fgs
 
 def main_1 () : 
-    CBP = MultiTSIPFM (w_color=True)
-    # CBP = ColorBasedPFM (w_color=False)
+    # CBP = MultiTSIPFM (w_color=True)
+    CBP = ColorBasedPFM (w_color=False)
 
     # csv_out = csv.DictWriter (open ('result.csv', 'wb'), ('data_id', 'left', 'center', 'right', 'and'))
     # csv_out.writeheader ()
@@ -1001,15 +1069,14 @@ def draw_blobs (img, blobs) :
 
         cv2.fillPoly (img, [hull], (125, 125, 125))
         cv2.fillPoly (img, [poly], (255, 255, 255))
-        cv2.drawContours (img, [poly], 0, (0, 0, 255), 2)
+        cv2.drawContours (img, [poly], 0, (125, 125, 125), 2)
 
     return img
 
 def main_2 () : 
-
     TOT_LANES = [3, 2, 2, None, 2, 2, 3]
-    # CBP = ColorBasedPFM (w_color=True)
-    CBP = MultiTSIPFM (w_color=True)
+    CBP = ColorBasedPFM (w_color=True)
+    # CBP = MultiTSIPFM (w_color=True)
 
     csv_out = csv.DictWriter (open ('result.csv', 'wb'), ('data_id', 'left', 'center', 'right', 'and'))
     csv_out.writeheader ()
@@ -1033,19 +1100,24 @@ def main_2 () :
                 break
 
         mask_combine = {}
+        frame = None
         for view in fgs.keys () :
-            mask_combine[view] = np.zeros_like (dsts.get (view, dsts['center']))
+            # """
 
             # divide by lane
-            if TOT_LANES[ses_id] == 3 : 
-                fgs[view][95:105, :] = 0
-                fgs[view][185:205, :] = 0
-            else : 
-                fgs[view][145:155, :] = 0
+            # if TOT_LANES[ses_id] == 3 : 
+            #     fgs[view][95:105, :] = 0
+            #     fgs[view][185:205, :] = 0
+            # else : 
+            #     fgs[view][145:155, :] = 0
 
             blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
             # blobs = CBP.get_clean_blobs_once (blobs)
-            mask_combine[view] = draw_blobs (mask_combine[view], blobs)
+            fgs[view] = draw_blobs (fgs[view], blobs)
+            loc = (10, 50)
+            cv2.putText (fgs[view], '{} #{}'.format (view, len (blobs)), loc, cv2.FONT_HERSHEY_PLAIN, 2, (0, 100, 255), 2) # and so we can insert text
+            # mask_combine[view] = draw_blobs (mask_combine[view], blobs)
             row[view] = len (blobs)
 
             # calculate accuracy
@@ -1054,10 +1126,25 @@ def main_2 () :
             else : 
                 accuracy[view] += 0
 
-        csv_out.writerow (row)
+        keys = fgs.keys ()
+        keys.insert (0, 'real')
+        fgs['real'] = dsts['center']
+        loc = (10, 50)
+        cv2.putText (fgs['real'], '{} #{}'.format ('real', gt['GT']), loc, cv2.FONT_HERSHEY_PLAIN, 2, (0, 100, 255), 2) # and so we can insert text
+
+
+        # csv_out.writerow (row)
+        # continue
+        path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'imgs', str (data_id))
+        if not os.path.isdir (path_to_save) : 
+            os.mkdir (path_to_save)
+
+        exp_name = 'analyze_contour_PFM_1'
+        cv2.imwrite (os.path.join (path_to_save, '{}.jpg'.format (exp_name)), np.vstack ([fgs[k] for k in keys]))
+        # cv2.imwrite (os.path.join (path_to_save, '{}-and.jpg'.format (exp_name)), fgs['and'])
         continue
         while True : 
-            cv2.imshow ('default', np.hstack (mask_combine.values ()))
+            cv2.imshow ('default', frame)
 
             if (cv2.waitKey(1) & 0xFF == ord('q')) :
                 sys.exit ()
@@ -1076,5 +1163,395 @@ def main_2 () :
         print ('{} - {:.2F}'.format (key, row[key]))
     csv_out.writerow (row)
 
+def main_3 () : 
+    TOT_LANES = [3, 2, 2, None, 2, 2, 3]
+    # CBP = ColorBasedPFM (w_color=True)
+    CBP = MultiTSIPFM (w_color=True)
+
+    for data_id in CBP.GT_LIST_ID[:1] : 
+        CBP.set_scene (data_id)
+        gt = [ ent for ent in CBP.GT_ONE_FRAME if int (ent['data_id'].split ('-')[0]) == data_id ][0]
+        ses_id = int (gt['data_id'].split ('-')[1])
+        ses_length_line = 300 / TOT_LANES[ses_id]
+
+        # skip to the end only
+        imgs = {}
+        while True : 
+            try :
+                imgs, dsts, fgs = CBP.process ()
+            except StopIteration as e : 
+                break
+
+        mask_residu = {} 
+        largest_contour = []
+        for view in ('and', 'left', 'right', 'center') :
+            mask_residu[view] = []
+            blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
+            blobs_splitted_vertical = []
+
+            if view == 'and' : 
+                for b in blobs : 
+                    # check for height
+                    (x,y, w, h) = cv2.boundingRect (b)
+                    if h >= ses_length_line + (1/2 * ses_length_line) : 
+                        # draw here
+                        blobs_splitted_vertical.extend (CBP.split_vertical (b, tot_lanes=TOT_LANES[ses_id]))
+
+                    else : 
+                        blobs_splitted_vertical.append (b)
+
+                blobs = blobs_splitted_vertical
+
+                for b in blobs : 
+                    # get hull an poligon approximation
+                    b_hull = cv2.convexHull (b)
+                    epsilon = 0.01*cv2.arcLength(b,True)
+                    b_poly = cv2.approxPolyDP(b,epsilon,True)
+
+                    # get mask
+                    mask_poly, mask_hull = CBP.create_convex_mask (b_poly, b_hull)
+                    
+                    # get largets contour of residu
+                    this_largest_residu = CBP.get_largest_residu_contour (mask_poly, mask_hull)
+                    if CBP.is_horizontal_splittable (b, this_largest_residu) : 
+                        largest_contour.append (this_largest_residu)
+
+                fgs['aftersplit'] = np.zeros_like (dsts['center'])
+                fgs['aftersplit'] = draw_blobs (fgs['aftersplit'], blobs)
+
+
+            # get something actually split
+            for lg in largest_contour : 
+                mask_residu[view].append (np.zeros (fgs[view].shape[:2]).astype ('uint8'))
+                cv2.drawContours(mask_residu[view][-1],[lg], 0, (255,255,255), -1)
+                mask_residu[view][-1] = cv2.threshold (mask_residu[view][-1], 25, 255, cv2.THRESH_BINARY)[1]
+
+                inverted_fgs = cv2.bitwise_not (cv2.threshold (fgs[view], 25, 255, cv2.THRESH_BINARY)[1])
+                mask_residu[view][-1] = cv2.bitwise_and (inverted_fgs, mask_residu[view][-1])
+
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
+            fgs[view] = draw_blobs (fgs[view], blobs)
+
+            loc = (10, 50)
+            cv2.putText (fgs[view], '{}'.format (view[0], len (blobs)), loc, cv2.FONT_HERSHEY_PLAIN, 2, (0, 100, 255), 2) # and so we can insert text
+
+        path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'imgs', str (data_id))
+        exp_name = 'split_vertical'
+
+        for lg_idx, lg in enumerate (largest_contour) :  
+            m_biner = np.zeros (mask_residu[view][lg_idx].shape)
+            for view in VIEW : 
+                m_biner += mask_residu[view][lg_idx]
+
+            tot_view = len (m_biner[ np.where (m_biner > 300) ])
+            tot_and = len (mask_residu['and'][lg_idx] [np.where (m_biner > 1) ])
+            print ('id : {}, lg_idx : {}, {:.2F}'.format (data_id, lg_idx, tot_view / tot_and))
+
+            if tot_view / tot_and >= 0.70 : 
+                for view in list (fgs.keys ()) : 
+                    cv2.drawContours (fgs[view], [lg], 0, (255, 0, 255), -1)
+
+        # frame = np.hstack ([mask_residu[k] for k in mask_residu.keys ()])
+        # frame = cv2.cvtColor (frame, cv2.COLOR_GRAY2BGR)
+        # frame = np.hstack ((frame, dsts['center']))
+        fgs.pop ('and', None)
+        fgs.pop ('aftersplit', None)
+        cv2.imwrite (os.path.join ('dd.jpg'.format (exp_name)), np.hstack (fgs.values ()))
+
+def test_PFM (iterations=1) : 
+    TOT_LANES = [3, 2, 2, None, 2, 2, 3]
+    CBP = ColorBasedPFM (w_color=True)
+
+    path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'PFM_{}'.format (iterations))
+    if not os.path.isdir (path_to_save) : 
+        os.mkdir (path_to_save)
+
+    csv_out = csv.DictWriter (open (os.path.join (path_to_save, 'result.csv'), 'wb'), ('data_id', 'left', 'center', 'right', 'and'))
+    csv_out.writeheader ()
+
+    accuracy = defaultdict (lambda : 0) 
+    for data_id in CBP.GT_LIST_ID : 
+        row = {}
+        row['data_id'] = data_id
+
+        CBP.set_scene (data_id)
+        gt = [ ent for ent in CBP.GT_ONE_FRAME if int (ent['data_id'].split ('-')[0]) == data_id ][0]
+        ses_id = int (gt['data_id'].split ('-')[1])
+        ses_length_line = 300 / TOT_LANES[ses_id]
+
+        # skip to the end only
+        imgs = {}
+        while True : 
+            try :
+                imgs, dsts, fgs = CBP.process (iterations=iterations)
+            except StopIteration as e : 
+                break
+
+
+        order = ('and', 'left', 'right', 'center')
+        blobs_all = {}
+        for view in  order :
+            blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
+            blobs_all[view] = blobs
+
+            # coloring
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
+            loc = (10, 30)
+            cv2.putText (fgs[view], '{} #{}'.format (view[0], len (blobs)), loc, cv2.FONT_HERSHEY_PLAIN, 2, (0, 100, 255), 3) # and so we can insert text
+            fgs[view] = draw_bounding_box_contours (fgs[view], blobs) 
+
+            # accuracy
+            row[view] = len (blobs)
+
+            # calculate accuracy
+            if int (gt['GT']) == len (blobs) : 
+                accuracy[view] += 1
+            else : 
+                accuracy[view] += 0
+
+        cv2.imwrite ('{}.jpg'.format (os.path.join (path_to_save, str (data_id))), np.vstack ([fgs[v] for v in order]))
+        dsts['center'] = draw_bounding_box_contours (dsts['center'], blobs_all['and'])
+        cv2.imwrite ('{}-center.jpg'.format (os.path.join (path_to_save, str (data_id))), dsts['center'])
+            
+        csv_out.writerow (row)
+
+    row = {'data_id' : 'Total True'}
+    for key in accuracy : 
+        row[key] = accuracy[key]
+    csv_out.writerow (row)
+    row = {'data_id' : 'Accuracy'}
+    print ('Accuracy : ')
+    for key in accuracy : 
+        row[key] = accuracy[key] / len (CBP.GT_LIST_ID)
+        print ('{}. {}/{} - {:.2F}'.format (key, accuracy[key], len (CBP.GT_LIST_ID) - accuracy[key], row[key]))
+    csv_out.writerow (row)
+
+def test_TSI (iterations=1) : 
+    TOT_LANES = [3, 2, 2, None, 2, 2, 3]
+    CBP = MultiTSIPFM (w_color=True)
+
+    path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'TSI_{}'.format (iterations))
+    if not os.path.isdir (path_to_save) : 
+        os.mkdir (path_to_save)
+
+    csv_out = csv.DictWriter (open (os.path.join (path_to_save, 'result.csv'), 'wb'), ('data_id', 'left', 'center', 'right', 'and'))
+    csv_out.writeheader ()
+
+    accuracy = defaultdict (lambda : 0) 
+    for data_id in CBP.GT_LIST_ID : 
+
+        row = {}
+        row['data_id'] = data_id
+
+        CBP.set_scene (data_id)
+        gt = [ ent for ent in CBP.GT_ONE_FRAME if int (ent['data_id'].split ('-')[0]) == data_id ][0]
+        ses_id = int (gt['data_id'].split ('-')[1])
+        ses_length_line = 300 / TOT_LANES[ses_id]
+
+        # skip to the end only
+        imgs = {}
+        while True : 
+            try :
+                imgs, dsts, fgs = CBP.process (iterations=iterations)
+            except StopIteration as e : 
+                break
+
+        path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'TSI_{}'.format (iterations))
+        if not os.path.isdir (path_to_save) : 
+            os.mkdir (path_to_save)
+
+        order = ('and', 'left', 'right', 'center')
+        for view in  order :
+            blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
+            loc = (10, 30)
+            cv2.putText (fgs[view], '{} #{}'.format (view[0], len (blobs)), loc, cv2.FONT_HERSHEY_PLAIN, 2, (0, 100, 255), 3) # and so we can insert text
+            fgs[view] = draw_bounding_box_contours (fgs[view], blobs) 
+
+            row[view] = len (blobs)
+
+            # calculate accuracy
+            if int (gt['GT']) == len (blobs) : 
+                accuracy[view] += 1
+            else : 
+                accuracy[view] += 0
+
+        cv2.imwrite ('{}.jpg'.format (os.path.join (path_to_save, str (data_id))), np.hstack ([fgs[v] for v in order]))
+
+    row = {'data_id' : 'Total True'}
+    for key in accuracy : 
+        row[key] = accuracy[key]
+    csv_out.writerow (row)
+    row = {'data_id' : 'Accuracy'}
+    print ('Accuracy : ')
+    for key in accuracy : 
+        row[key] = accuracy[key] / len (CBP.GT_LIST_ID)
+        print ('{}. {}/{} - {:.2F}'.format (key, accuracy[key], len (CBP.GT_LIST_ID) - accuracy[key], row[key]))
+    csv_out.writerow (row)
+
+def test_TSI_split (iterations=1):
+
+    def split_horizontal (blobs) : 
+        blobs_splitted_vertical = []
+        for b in blobs : 
+            # check for height
+            (x,y, w, h) = cv2.boundingRect (b)
+            if h >= ses_length_line + (1/2 * ses_length_line) : 
+                # draw here
+                blobs_splitted_vertical.extend (CBP.split_vertical (b, tot_lanes=TOT_LANES[ses_id]))
+
+            else : 
+                blobs_splitted_vertical.append (b)
+
+        return blobs_splitted_vertical
+    
+    TOT_LANES = [3, 2, 2, None, 2, 2, 3]
+    CBP = MultiTSIPFM (w_color=True)
+
+    path_to_save = os.path.join (os.path.abspath (os.path.dirname (__file__)), 'TSI_SPLIT_{}'.format (iterations))
+    if not os.path.isdir (path_to_save) : 
+        os.mkdir (path_to_save)
+
+    csv_out = csv.DictWriter (open (os.path.join (path_to_save, 'result.csv'), 'wb'), ('data_id', 'left', 'center', 'right', 'and'))
+    csv_out.writeheader ()
+
+    accuracy = defaultdict (lambda : 0) 
+    for data_id in CBP.GT_LIST_ID : 
+
+        row = {}
+        row['data_id'] = data_id
+
+        CBP.set_scene (data_id)
+        gt = [ ent for ent in CBP.GT_ONE_FRAME if int (ent['data_id'].split ('-')[0]) == data_id ][0]
+        ses_id = int (gt['data_id'].split ('-')[1])
+        ses_length_line = 300 / TOT_LANES[ses_id]
+
+        # skip to the end only
+        imgs = {}
+        while True : 
+            try :
+                imgs, dsts, fgs = CBP.process (iterations=iterations)
+            except StopIteration as e : 
+                break
+
+        mask_residu = defaultdict (list) 
+        largest_contour = []
+        largest_contour_idx = []
+        order = ('and', 'left', 'right', 'center')
+        blobs_splitted = []
+        blobs_and = []
+        for view in  order :
+            blobs = TSIUtil.get_contours (fgs[view], min_width=50, min_area=100)
+
+            if view == 'and' : 
+
+                blobs = split_horizontal (blobs)
+                blobs_and = blobs[:]
+                for b_idx, b in enumerate (blobs) : 
+                    # get hull an poligon approximation
+                    b_hull = cv2.convexHull (b)
+                    epsilon = 0.01*cv2.arcLength(b,True)
+                    b_poly = cv2.approxPolyDP(b,epsilon,True)
+
+                    # get mask
+                    mask_poly, mask_hull = CBP.create_convex_mask (b_poly, b_hull)
+                    
+                    # get largets contour of residu
+                    this_largest_residu = CBP.get_largest_residu_contour (mask_poly, mask_hull)
+                    if CBP.is_horizontal_splittable (b, this_largest_residu) : 
+                        largest_contour.append (this_largest_residu)
+                        largest_contour_idx.append (b_idx)
+
+                # fgs['aftersplit'] = np.zeros_like (dsts['center'])
+                # fgs['aftersplit'] = draw_blobs (fgs['aftersplit'], blobs)
+                blobs_splitted = blobs
+
+            # get something actually split
+            for lg in largest_contour : 
+
+                mask_residu[view].append (np.zeros (fgs[view].shape[:2]).astype ('uint8'))
+                cv2.drawContours(mask_residu[view][-1],[lg], 0, (255,255,255), -1)
+                mask_residu[view][-1] = cv2.threshold (mask_residu[view][-1], 25, 255, cv2.THRESH_BINARY)[1]
+
+                inverted_fgs = cv2.bitwise_not (cv2.threshold (fgs[view], 25, 255, cv2.THRESH_BINARY)[1])
+                mask_residu[view][-1] = cv2.bitwise_and (inverted_fgs, mask_residu[view][-1])
+
+            fgs[view] = cv2.cvtColor (fgs[view], cv2.COLOR_GRAY2BGR)
+            # fgs[view] = draw_blobs (fgs[view], blobs)
+
+            # loc = (10, 50)
+            # cv2.putText (fgs[view], '{}'.format (view[0], len (blobs)), loc, cv2.FONT_HERSHEY_PLAIN, 2, (0, 100, 255), 2) # and so we can insert text
+
+        skipped_blob = []
+        for lg_idx, lg in enumerate (largest_contour) :  
+            m_biner = np.zeros (mask_residu[view][lg_idx].shape)
+            for view in VIEW : 
+                m_biner += mask_residu[view][lg_idx]
+
+            tot_view = len (m_biner[ np.where (m_biner > 300) ])
+            tot_and = len (mask_residu['and'][lg_idx] [np.where (m_biner > 1) ])
+            # print ('id : {}, lg_idx : {}, {:.2F}'.format (data_id, lg_idx, tot_view / tot_and))
+
+            if tot_view / tot_and >= 0.50 and ses_id not in (29, 32, 35) : 
+                # for view in list (fgs.keys ()) : 
+                    # cv2.drawContours (fgs[view], [lg], 0, (255, 0, 255), -1)
+
+                mask_blob = np.zeros (fgs[view].shape[:2]).astype ('uint8')
+                mask_blob = cv2.drawContours (
+                        mask_blob, 
+                        [blobs_splitted[largest_contour_idx[lg_idx]]], 
+                        0, 
+                        (255, 255, 255), 
+                        -1
+                    )
+
+                # get center 
+                M = cv2.moments(lg)
+                cx = int(M['m10']/M['m00'])
+                cy = int(M['m01']/M['m00'])
+                mask_blob[:, cx-5:cx+5] = 0
+                blobs_splitted.extend (TSIUtil.get_contours (mask_blob))
+                # its no longer valid, since we split it already
+                skipped_blob.append (largest_contour_idx[lg_idx])
+
+        blobs_splitted = [b for (idx, b) in enumerate (blobs_splitted) if idx not in skipped_blob]
+
+
+        # row[view] = len (blobs)
+
+        # calculate accuracy
+        if int (gt['GT']) == len (blobs) : 
+            accuracy[view] += 1
+        else : 
+            accuracy[view] += 0
+
+        # draw
+        print (len (blobs_splitted))
+        fgs['aftersplit'] = np.zeros_like (dsts['center'])
+        for b in blobs_splitted : 
+            fgs['aftersplit'] = cv2.drawContours (fgs['aftersplit'], [b], 0, (255, 255, 255), -1)
+        fgs['aftersplit'] = draw_bounding_box_contours (fgs['aftersplit'], blobs_splitted)
+        dsts['center'] = draw_bounding_box_contours (dsts['center'], blobs_splitted)
+
+        cv2.imwrite (
+                '{}-center.jpg'.format (os.path.join (path_to_save, str (data_id))), 
+                dsts['center']
+            )
+
+
+    row = {'data_id' : 'Total True'}
+    for key in accuracy : 
+        row[key] = accuracy[key]
+    csv_out.writerow (row)
+    row = {'data_id' : 'Accuracy'}
+    print ('Accuracy : ')
+    for key in accuracy : 
+        row[key] = accuracy[key] / len (CBP.GT_LIST_ID)
+        print ('{}. {}/{} - {:.2F}'.format (key, accuracy[key], len (CBP.GT_LIST_ID) - accuracy[key], row[key]))
+    csv_out.writerow (row)
+
 if __name__ == '__main__' : 
-    main_2 ()
+    # main_3 ()
+    # test_PFM (2)
+    # test_TSI (1)
+    test_TSI_split (2)
